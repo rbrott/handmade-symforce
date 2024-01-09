@@ -1,0 +1,8 @@
+/zig-cache
+/zig-out
+
+/eigen-3.4.0
+/metis-5.1.0
+
+*.bin
+
