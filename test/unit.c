@@ -188,10 +188,13 @@ int main() {
         // L = {{0, 0}, {0, 0.5}}
         // D = diag({4, 1})
         // L D L^t = {{4, 2}, {2, 2}}
-        i32 L_col_starts[2] = {0, 1};
+        i32 L_col_starts[3] = {0, 1, 1};
         i32 L_row_indices[1] = {1};
         f64 L_data[1] = {0.5};
         f64 D_data[2] = {4.0, 1.0};
+        i32 Lt_col_starts[3] = {0, 0, 1};
+        i32 Lt_row_indices[1] = {0};
+        f64 Lt_data[1] = {0.5};
         sym_chol_factorization fac = {
             .L = {
                 .nrows = 2,
@@ -204,6 +207,14 @@ int main() {
             .D = {
                 .n = 2,
                 .data = D_data,
+            },
+            .Lt = {
+                .nrows = 2,
+                .ncols = 2,
+                .nnz = 1,
+                .col_starts = Lt_col_starts,
+                .row_indices = Lt_row_indices,
+                .data = Lt_data,
             }
         };
 
@@ -212,13 +223,13 @@ int main() {
             .n = 2,
             .data = x_data,
         };
-        sym_chol_solver_solve_in_place(fac, x, alloc);
+        sym_chol_solver_solve_in_place(fac, x);
         assert(x.data[0] == 1.0);
         assert(x.data[1] == 0.0);
 
         x.data[0] = 2.0;
         x.data[1] = 0.0;
-        sym_chol_solver_solve_in_place(fac, x, alloc);
+        sym_chol_solver_solve_in_place(fac, x);
         assert(x.data[0] == 1.0);
         assert(x.data[1] == -1.0);
 
@@ -240,6 +251,11 @@ int main() {
         assert(fac.L.col_starts[1] == 1);
         assert(fac.L.row_indices[0] == 1);
         assert(fac.L.data[0] == 0.5);
+
+        assert(fac.Lt.col_starts[0] == 0);
+        assert(fac.Lt.col_starts[1] == 0);
+        assert(fac.Lt.col_starts[2] == 1);
+        assert(fac.Lt.row_indices[0] == 0);
 
         sym_chol_solver_free(solver, alloc);
         sym_chol_factorization_free(fac, alloc);

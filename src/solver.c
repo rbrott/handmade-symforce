@@ -66,7 +66,75 @@ sym_chol_solver sym_new_chol_solver(sym_csc_mat m, sym_chol_factorization* fac, 
         L_col_starts[i + 1] = L_col_starts[i] + nnz_by_col[i];
     }
     i32 L_nnz = L_col_starts[m.nrows];
+
     i32* L_row_indices = alloc->malloc(L_nnz * sizeof(i32), alloc->ctx);
+
+    i32* L_k_pattern = alloc->malloc(m.nrows * sizeof(i32), alloc->ctx);
+
+    // Do another pass to compute row indices
+
+    // Initialize helpers
+    for (i32 i = 0; i < m.nrows; ++i) {
+        nnz_by_col[i] = 0;
+    }
+
+    // For each row of L, compute nonzero pattern in topo order
+    for (i32 k = 0; k < m.nrows; ++k) {
+        // Mark k as visited
+        visited[k] = k;
+
+        // Reverse counter
+        i32 top_inx = m.nrows;
+
+        for (i32 j = m.col_starts[k]; j < m.col_starts[k + 1]; ++j) {
+            // Get row index
+            i32 i = m.row_indices[j];
+
+            // Skip if not in the upper triangle
+            if (i > k) {
+                continue;
+            }
+
+            // Follow path from i to root, stop when hit previously visited node
+            i32 depth = 0;
+            while (visited[i] != k) {
+                // L(k,i) is nonzero
+                L_k_pattern[depth] = i;
+
+                // Mark i as visited
+                visited[i] = k;
+
+                // Follow to parent
+                i = parent[i];
+
+                // Increment depth
+                ++depth;
+            }
+
+            // Update pattern
+            while (depth > 0) {
+                --depth;
+                --top_inx;
+                L_k_pattern[top_inx] = L_k_pattern[depth];
+            }
+        }
+
+        for (; top_inx < m.nrows; ++top_inx) {
+            // L_k_pattern_[top_inx:] is the pattern of L(:, k)
+            i32 i = L_k_pattern[top_inx];
+
+            // Get the range for i
+            i32 ptr_start = L_col_starts[i];
+            i32 ptr_end = ptr_start + nnz_by_col[i];
+
+            // Save L(k, i)
+            L_row_indices[ptr_end] = k;
+
+            // Increment nonzeros in column i
+            ++nnz_by_col[i];
+        }
+    }
+
     f64* L_data = alloc->malloc(L_nnz * sizeof(f64), alloc->ctx);
     sym_csc_mat L = {
         .nrows = m.nrows,
@@ -85,8 +153,12 @@ sym_chol_solver sym_new_chol_solver(sym_csc_mat m, sym_chol_factorization* fac, 
     };
     fac->D = D;
 
+    i32* Lt_perm = alloc->malloc(L_nnz * sizeof(i32), alloc->ctx);
+    // TODO: L has empty data, so we could skip permuting it
+    sym_csc_mat Lt = sym_transpose_csc(L, Lt_perm, alloc);
+    fac->Lt = Lt;
+
     // Allocate other memory used for subsequent factorization and solve calls
-    i32* L_k_pattern = alloc->malloc(m.nrows * sizeof(i32), alloc->ctx);
     f64* D_agg = alloc->malloc(m.nrows * sizeof(f64), alloc->ctx);
 
     sym_chol_solver s = {
@@ -95,7 +167,9 @@ sym_chol_solver sym_new_chol_solver(sym_csc_mat m, sym_chol_factorization* fac, 
         .nnz_by_col = nnz_by_col,
         .L_k_pattern = L_k_pattern,
         .D_agg = D_agg,
+        .Lt_perm = Lt_perm,
         .dim = m.nrows,
+        .L_nnz = L_nnz,
     };
     return s;
 }
@@ -182,7 +256,6 @@ void sym_chol_solver_factor(sym_chol_solver solver, sym_csc_mat m, sym_chol_fact
             }
 
             // Save L(k, i)
-            fac.L.row_indices[ptr_end] = k;
             fac.L.data[ptr_end] = L_ki;
 
             // Update D(k)
@@ -195,22 +268,21 @@ void sym_chol_solver_factor(sym_chol_solver solver, sym_csc_mat m, sym_chol_fact
         // Save D(k)
         fac.D.data[k] = D_k;
     }
+
+    // Prepare L^t
+    for (i32 i = 0; i < solver.L_nnz; ++i) {
+        fac.Lt.data[i] = fac.L.data[solver.Lt_perm[i]];
+    }
 }
 
-// TODO: allocation here is pretty sad
-//   not sure if making transpose not alloc is feasible
-//   I can't tell what Eigen does
-void sym_chol_solver_solve_in_place(sym_chol_factorization fac, sym_vec x, sym_allocator* alloc) {
+void sym_chol_solver_solve_in_place(sym_chol_factorization fac, sym_vec x) {
     SYM_ASSERT(fac.L.nrows == fac.L.ncols);
     SYM_ASSERT(x.n == fac.L.nrows);
 
     // L \ x in place
     for (i32 k = 0; k < fac.L.nrows; ++k) {
-        i32 j = fac.L.col_starts[k];
-        // TODO: apparently the diagonal is all empty?
-        // SYM_ASSERT(fac.L.row_indices[j] == k);
         f64 y = x.data[k];
-        for (; j < fac.L.col_starts[k + 1]; ++j) {
+        for (i32 j = fac.L.col_starts[k]; j < fac.L.col_starts[k + 1]; ++j) {
             i32 i = fac.L.row_indices[j];
             x.data[i] -= fac.L.data[j] * y;
         }
@@ -222,20 +294,13 @@ void sym_chol_solver_solve_in_place(sym_chol_factorization fac, sym_vec x, sym_a
     }
 
     // L^T \ x in place
-    i32* perm = alloc->malloc(fac.L.nnz * sizeof(i32), alloc->ctx);
-    sym_csc_mat Lt = sym_transpose_csc(fac.L, perm, alloc);
-    alloc->free(perm, fac.L.nnz * sizeof(i32), alloc->ctx);
-    for (i32 k = Lt.nrows - 1; k >= 0; --k) {
-        // make sure there's a diagonal entry
-        i32 j = Lt.col_starts[k + 1] - 1;
+    for (i32 k = fac.Lt.nrows - 1; k >= 0; --k) {
         f64 y = x.data[k];
-        for (; j >= Lt.col_starts[k]; --j) {
-            i32 i = Lt.row_indices[j];
-            x.data[i] -= Lt.data[j] * y;
+        for (i32 j = fac.Lt.col_starts[k + 1] - 1; j >= fac.Lt.col_starts[k]; --j) {
+            i32 i = fac.Lt.row_indices[j];
+            x.data[i] -= fac.Lt.data[j] * y;
         }
     }
-        
-    sym_csc_mat_free(Lt, alloc);
 }
 
 void sym_chol_solver_free(sym_chol_solver solver, sym_allocator* alloc) {
@@ -244,9 +309,11 @@ void sym_chol_solver_free(sym_chol_solver solver, sym_allocator* alloc) {
     alloc->free(solver.nnz_by_col, solver.dim * sizeof(i32), alloc->ctx);
     alloc->free(solver.L_k_pattern, solver.dim * sizeof(i32), alloc->ctx);
     alloc->free(solver.D_agg, solver.dim * sizeof(f64), alloc->ctx);
+    alloc->free(solver.Lt_perm, solver.L_nnz * sizeof(i32), alloc->ctx);
 }
 
 void sym_chol_factorization_free(sym_chol_factorization fac, sym_allocator* alloc) {
     sym_csc_mat_free(fac.L, alloc);
     sym_vec_free(fac.D, alloc);
+    sym_csc_mat_free(fac.Lt, alloc);
 }

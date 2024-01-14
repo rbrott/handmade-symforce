@@ -287,7 +287,7 @@ void RunProblem(const std::string& filename) {
       x.data[i] = -lin.rhs.data[i];
     }
 
-    sym_chol_solver_solve_in_place(fac, x, alloc);
+    sym_chol_solver_solve_in_place(fac, x);
 
     // apply the update to the values
     for (i32 i = 0; i < num_cameras; ++i) {
