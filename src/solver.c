@@ -177,7 +177,6 @@ sym_chol_solver sym_new_chol_solver(sym_csc_mat m, sym_chol_factorization* fac, 
 // See "Modified Cholesky Factorization", page 145:
 // http://www.bioinfo.org.cn/~wangchao/maa/Numerical_Optimization.pdf
 
-// TODO: row indices is computed each time -- maybe that's fine?
 void sym_chol_solver_factor(sym_chol_solver solver, sym_csc_mat m, sym_chol_factorization fac) {
     SYM_ASSERT(fac.L.nrows == fac.L.ncols);
     SYM_ASSERT(solver.dim == fac.L.nrows);

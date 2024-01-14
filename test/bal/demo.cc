@@ -5,7 +5,6 @@
 
 #include <fstream>
 #include <iostream>
-#include <unordered_set>
 
 #include <Eigen/Core>
 
@@ -84,7 +83,7 @@ void RunProblem(const std::string& filename) {
     values[10 * num_cameras + 3 * i + 2] = z;
   }
 
-  size n = 1L << 32; // 1 GiB seems fine
+  size n = 1L << 30; // 1 GiB seems fine
   printf("Allocating %ld bytes\n", n);
   u8* buf = (u8*) malloc(n);
 
@@ -329,6 +328,7 @@ void RunProblem(const std::string& filename) {
 
     if (!accept_update && lambda >= lambda_upper_bound) {
       printf("Failed: lambda out of bounds!\n");
+      break;
     }
 
     if (!accept_update) {
