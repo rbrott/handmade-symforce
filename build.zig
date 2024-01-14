@@ -166,19 +166,8 @@ pub fn build(b: *std.build.Builder) void {
     balDemo.addIncludePath(.{
         .path="test/bal",
     });
-    balDemo.addIncludePath(.{
-        .path="eigen-3.4.0/include/eigen3",
-    });
     balDemo.addCSourceFiles(&.{
         "test/bal/demo.cc",
-        "test/bal/sym/rot3.cc",
-        "test/bal/sym/ops/rot3/storage_ops.cc",
-        "test/bal/sym/ops/rot3/group_ops.cc",
-        "test/bal/sym/ops/rot3/lie_group_ops.cc",
-        "test/bal/sym/pose3.cc",
-        "test/bal/sym/ops/pose3/storage_ops.cc",
-        "test/bal/sym/ops/pose3/group_ops.cc",
-        "test/bal/sym/ops/pose3/lie_group_ops.cc",
     }, &.{
     });
     balDemo.linkLibrary(lib);

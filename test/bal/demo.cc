@@ -6,14 +6,12 @@
 #include <fstream>
 #include <iostream>
 
-#include <Eigen/Core>
-
-#include <sym/pose3.h>
-
 #include <math.h>
+#include <float.h>
 
 #include "gen/snavely_reprojection_factor.h"
 #include "gen/pose3_retract.h"
+#include "gen/rot3_tangent.h"
 
 #include "sym_assert.h"
 #include "alloc.h"
@@ -22,6 +20,8 @@
 #include "solver.h"
 
 void RunProblem(const std::string& filename) {
+  f64 epsilon = 10.0 * DBL_EPSILON;
+
   std::ifstream file(filename);
 
   int num_cameras, num_points, num_observations;
@@ -63,9 +63,12 @@ void RunProblem(const std::string& filename) {
     file >> k1;
     file >> k2;
 
-    sym::Pose3d cam_T_world(sym::Rot3d::FromTangent(Eigen::Vector3d(rx, ry, rz)),
-                              Eigen::Vector3d(tx, ty, tz));
-    cam_T_world.ToStorage(values + 10 * i);
+    f64 rot_tangent[3] = {rx, ry, rz};
+    rot3_from_tangent(rot_tangent, values + 10 * i, epsilon);
+
+    values[10 * i + 4] = tx;
+    values[10 * i + 5] = ty;
+    values[10 * i + 6] = tz;
 
     values[10 * i + 7] = f;
     values[10 * i + 8] = k1;
@@ -192,7 +195,7 @@ void RunProblem(const std::string& filename) {
                                   values + 10 * camera_index + 7,
                                   values + 10 * num_cameras + 3 * point_index,
                                   pixels + 2 * obs_index,
-                                  sym::kDefaultEpsilond,
+                                  epsilon,
                                   fac_res, NULL, fac_hessian_dense, fac_rhs);
                               
       error += fac_res[0] * fac_res[0];
@@ -293,7 +296,7 @@ void RunProblem(const std::string& filename) {
       i32 pose_key = 2 * i + 0;
       i32 pose_values_offset = 10 * i;
       i32 pose_rhs_offset = lzr.key_size_scan[lzr.key_iperm[pose_key]];
-      sym_pose3_retract_in_place(values + pose_values_offset, x.data + pose_rhs_offset, sym::kDefaultEpsilond);
+      sym_pose3_retract_in_place(values + pose_values_offset, x.data + pose_rhs_offset, epsilon);
 
       i32 intrinsics_key = 2 * i + 1;
       i32 intrinsics_values_offset = 10 * i + 7;
@@ -312,7 +315,7 @@ void RunProblem(const std::string& filename) {
     }
 
     f64 error = linearize();
-    f64 relative_reduction = (last_error - error) / (last_error + sym::kDefaultEpsilond);
+    f64 relative_reduction = (last_error - error) / (last_error + epsilon);
 
     printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %e\n", 
       iteration, lambda, last_error, error, relative_reduction);
