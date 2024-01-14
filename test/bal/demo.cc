@@ -11,8 +11,12 @@
 
 #include <sym/pose3.h>
 
-#include "gen/snavely_reprojection_factor.h"
+#include <math.h>
 
+#include "gen/snavely_reprojection_factor.h"
+#include "gen/pose3_retract.h"
+
+#include "sym_assert.h"
 #include "alloc.h"
 #include "arena.h"
 #include "linearizer.h"
@@ -143,15 +147,16 @@ void RunProblem(const std::string& filename) {
   alloc->free(Hl_block_cols, nblocks * sizeof(i32), alloc->ctx);
 
   i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
-  sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
+  // sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
 
-  i32* key_size_scan = (i32*) alloc->malloc((nkeys + 1) * sizeof(i32), alloc->ctx);
-  key_size_scan[0] = 0;
-  for (i32 i = 0; i < nkeys; ++i) {
-      key_size_scan[i + 1] = key_size_scan[i] + key_sizes[i];
+  i32 use_metis = 1;
+  if (use_metis) {
+      sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
+  } else {
+      for (i32 i = 0; i < nkeys; ++i) {
+          key_perm[i] = i;
+      }
   }
-
-  alloc->free(key_size_scan, (nkeys + 1) * sizeof(i32), alloc->ctx);
 
   sym_linearization lin;
   sym_linearizer lzr = sym_linearizer_new(
@@ -267,16 +272,15 @@ void RunProblem(const std::string& filename) {
   const bool enable_bold_updates = false;
 
   f64 last_error = linearize();
-  printf("error = %e\n", last_error);
   f64 lambda = initial_lambda;
   i32 iteration = 0;
   while (true) {
     // damp the last Hessian
-    assert(use_unit_damping);
-    assert(!use_diagonal_damping);
-    for (i32 i = 0; i < nkeys; ++i) {
+    SYM_ASSERT(use_unit_damping);
+    SYM_ASSERT(!use_diagonal_damping);
+    for (i32 i = 0; i < lin.Hl.nrows; ++i) {
       i32 j = lin.Hl.col_starts[i];
-      assert(lin.Hl.row_indices[j] == i);
+      SYM_ASSERT(lin.Hl.row_indices[j] == i);
       lin.Hl.data[j] += lambda;
     }
 
@@ -287,18 +291,63 @@ void RunProblem(const std::string& filename) {
 
     sym_chol_solver_factor(solver, Hlt, fac);
 
-    for (i32 i = 0; i < nkeys; ++i) {
+    for (i32 i = 0; i < lin.Hl.nrows; ++i) {
       x.data[i] = -lin.rhs.data[i];
     }
 
     sym_chol_solver_solve_in_place(fac, x, alloc);
 
     // apply the update to the values
+    for (i32 i = 0; i < num_cameras; ++i) {
+      i32 pose_key = 2 * i + 0;
+      i32 pose_values_offset = 10 * i;
+      i32 pose_rhs_offset = lzr.key_size_scan[lzr.key_iperm[pose_key]];
+      sym_pose3_retract_in_place(values + pose_values_offset, x.data + pose_rhs_offset, sym::kDefaultEpsilond);
 
-    // printf("error = %e\n", error);
+      i32 intrinsics_key = 2 * i + 1;
+      i32 intrinsics_values_offset = 10 * i + 7;
+      i32 intrinsics_rhs_offset = lzr.key_size_scan[lzr.key_iperm[intrinsics_key]];
+      for (i32 j = 0; j < 3; ++j) {
+        values[intrinsics_values_offset + j] += x.data[intrinsics_rhs_offset + j];
+      }
+    }
+    for (i32 i = 0; i < num_points; ++i) {
+      i32 point_key = 2 * num_cameras + i;
+      i32 point_values_offset = 10 * num_cameras + 3 * i;
+      i32 point_rhs_offset = lzr.key_size_scan[lzr.key_iperm[point_key]];
+      for (i32 j = 0; j < 3; ++j) {
+        values[point_values_offset + j] += x.data[point_rhs_offset + j];
+      }
+    }
 
-    break;
+    f64 error = linearize();
+    f64 relative_reduction = (last_error - error) / (last_error + sym::kDefaultEpsilond);
 
+    printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %e\n", 
+      iteration, lambda, last_error, error, relative_reduction);
+
+    if (relative_reduction > -early_exit_min_reduction / 10 &&
+        relative_reduction < early_exit_min_reduction) {
+      printf("Success!\n");
+      break;
+    }
+
+    bool accept_update = relative_reduction > 0;
+    SYM_ASSERT(!enable_bold_updates);
+
+    if (!accept_update && lambda >= lambda_upper_bound) {
+      printf("Failed: lambda out of bounds!\n");
+    }
+
+    if (!accept_update) {
+      lambda *= lambda_up_factor;
+    } else {
+      lambda *= lambda_down_factor;
+    }
+
+    lambda = fmax(fmin(lambda, lambda_upper_bound), lambda_lower_bound);
+
+    last_error = error;
     ++iteration;
   }
 
@@ -317,13 +366,13 @@ void RunProblem(const std::string& filename) {
 
   printf("nalloc = %d\n", arena.nalloc);
   printf("max_nalloc = %d\n", arena.max_nalloc);
-  assert(arena.nalloc == 0);
+  SYM_ASSERT(arena.nalloc == 0);
   
   free(buf);
 }
 
 int main(int argc, char** argv) {
-  assert(argc == 2);
+  SYM_ASSERT(argc == 2);
 
   const char* filename = argv[1];
   RunProblem(filename);
