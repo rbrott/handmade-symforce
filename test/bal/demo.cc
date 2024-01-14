@@ -84,7 +84,8 @@ void RunProblem(const std::string& filename) {
     values[10 * num_cameras + 3 * i + 2] = z;
   }
 
-  size n = 1 << 30; // 1 GiB seems fine
+  size n = 1L << 32; // 1 GiB seems fine
+  printf("Allocating %ld bytes\n", n);
   u8* buf = (u8*) malloc(n);
 
   sym_arena arena = {
@@ -147,16 +148,7 @@ void RunProblem(const std::string& filename) {
   alloc->free(Hl_block_cols, nblocks * sizeof(i32), alloc->ctx);
 
   i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
-  // sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
-
-  i32 use_metis = 1;
-  if (use_metis) {
-      sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
-  } else {
-      for (i32 i = 0; i < nkeys; ++i) {
-          key_perm[i] = i;
-      }
-  }
+  sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
 
   sym_linearization lin;
   sym_linearizer lzr = sym_linearizer_new(
@@ -343,11 +335,12 @@ void RunProblem(const std::string& filename) {
       lambda *= lambda_up_factor;
     } else {
       lambda *= lambda_down_factor;
+      // TODO: is this right?
+      last_error = error;
     }
 
     lambda = fmax(fmin(lambda, lambda_upper_bound), lambda_lower_bound);
 
-    last_error = error;
     ++iteration;
   }
 
