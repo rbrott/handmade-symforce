@@ -49,6 +49,8 @@ sym_csc_mat sym_csc_from_deduped_pairs(
     sym_allocator* alloc
 );
 
+sym_csc_mat sym_transpose_csc(sym_csc_mat m, i32* perm, sym_allocator* alloc);
+
 void sym_print_csc_mat(sym_csc_mat m, sym_allocator* alloc);
 
 

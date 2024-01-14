@@ -230,7 +230,7 @@ sym_csc_mat sym_csc_from_deduped_pairs(
     return m;
 }
 
-void sym_print_csc_mat(sym_csc_mat m, sym_allocator* alloc) {
+sym_csc_mat sym_transpose_csc(sym_csc_mat m, i32* perm, sym_allocator* alloc) {
     i32* rows = (i32*) alloc->malloc(m.nnz * sizeof(i32), alloc->ctx);
     i32* cols = (i32*) alloc->malloc(m.nnz * sizeof(i32), alloc->ctx); 
     for (i32 i = 0; i < m.ncols; ++i) {
@@ -240,7 +240,6 @@ void sym_print_csc_mat(sym_csc_mat m, sym_allocator* alloc) {
         }
     }
 
-    i32* perm = (i32*) alloc->malloc(m.nnz * sizeof(i32), alloc->ctx);
     sym_csc_mat mt = sym_csc_from_deduped_pairs(rows, cols, m.nnz, m.nrows, m.ncols, perm, alloc);
     alloc->free(rows, m.nnz * sizeof(i32), alloc->ctx);
     alloc->free(cols, m.nnz * sizeof(i32), alloc->ctx);
@@ -252,6 +251,13 @@ void sym_print_csc_mat(sym_csc_mat m, sym_allocator* alloc) {
         }
     }
     mt.data = data;
+
+    return mt;
+}
+
+void sym_print_csc_mat(sym_csc_mat m, sym_allocator* alloc) {
+    i32* perm = (i32*) alloc->malloc(m.nnz * sizeof(i32), alloc->ctx);
+    sym_csc_mat mt = sym_transpose_csc(m, perm, alloc);
 
     i32 nz_index = 0;
     for (i32 i = 0; i < m.nrows; ++i) {
