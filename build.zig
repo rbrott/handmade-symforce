@@ -167,12 +167,11 @@ pub fn build(b: *std.build.Builder) void {
         .path="test/bal",
     });
     balDemo.addCSourceFiles(&.{
-        "test/bal/demo.cc",
+        "test/bal/demo.c",
     }, &.{
     });
     balDemo.linkLibrary(lib);
     balDemo.linkLibrary(libmetis);
-    balDemo.linkLibCpp();
 
     const unit = b.addExecutable(.{
         .name = "unit",
