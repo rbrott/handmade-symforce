@@ -165,7 +165,7 @@ void CheckProblem(sym::bal_test_data_t ref, const std::string& filename, std::ve
   i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
   i32 use_metis = 1;
   if (use_metis) {
-      sym_get_metis_lower_tri_perm(Hl_block, key_sizes, key_perm, alloc);
+      sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
   } else {
       for (i32 i = 0; i < nkeys; ++i) {
           key_perm[i] = i;

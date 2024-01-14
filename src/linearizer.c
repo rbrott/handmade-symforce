@@ -5,7 +5,7 @@
 
 #include <metis.h>
 
-void sym_get_metis_lower_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocator* alloc) {
+void sym_get_metis_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocator* alloc) {
     assert(m.nrows == m.ncols);
 
     // METIS wants a symmetric matrix with no entries on the diagonal 
