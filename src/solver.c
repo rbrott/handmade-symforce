@@ -7,10 +7,10 @@
 
 #include "solver.h"
 
-#include <assert.h>
+#include "sym_assert.h"
 
 sym_chol_solver sym_new_chol_solver(sym_csc_mat m, sym_chol_factorization* fac, sym_allocator* alloc) {
-    assert(m.nrows == m.ncols);
+    SYM_ASSERT(m.nrows == m.ncols);
     
     i32* visited = alloc->malloc(m.nrows * sizeof(i32), alloc->ctx);
     i32* parent = alloc->malloc(m.nrows * sizeof(i32), alloc->ctx);
@@ -105,8 +105,8 @@ sym_chol_solver sym_new_chol_solver(sym_csc_mat m, sym_chol_factorization* fac, 
 
 // TODO: row indices is computed each time -- maybe that's fine?
 void sym_chol_solver_factor(sym_chol_solver solver, sym_csc_mat m, sym_chol_factorization fac) {
-    assert(fac.L.nrows == fac.L.ncols);
-    assert(solver.dim == fac.L.nrows);
+    SYM_ASSERT(fac.L.nrows == fac.L.ncols);
+    SYM_ASSERT(solver.dim == fac.L.nrows);
 
     // Initialize helpers
     for (i32 i = 0; i < solver.dim; ++i) {
@@ -201,14 +201,14 @@ void sym_chol_solver_factor(sym_chol_solver solver, sym_csc_mat m, sym_chol_fact
 //   not sure if making transpose not alloc is feasible
 //   I can't tell what Eigen does
 void sym_chol_solver_solve_in_place(sym_chol_factorization fac, sym_vec x, sym_allocator* alloc) {
-    assert(fac.L.nrows == fac.L.ncols);
-    assert(x.n == fac.L.nrows);
+    SYM_ASSERT(fac.L.nrows == fac.L.ncols);
+    SYM_ASSERT(x.n == fac.L.nrows);
 
     // L \ x in place
     for (i32 k = 0; k < fac.L.nrows; ++k) {
         i32 j = fac.L.col_starts[k];
         // TODO: apparently the diagonal is all empty?
-        // assert(fac.L.row_indices[j] == k);
+        // SYM_ASSERT(fac.L.row_indices[j] == k);
         f64 y = x.data[k];
         for (; j < fac.L.col_starts[k + 1]; ++j) {
             i32 i = fac.L.row_indices[j];

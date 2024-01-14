@@ -1,12 +1,12 @@
 #include "linearizer.h"
 
 #include <stdio.h>
-#include <assert.h>
+#include "sym_assert.h"
 
 #include <metis.h>
 
 void sym_get_metis_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocator* alloc) {
-    assert(m.nrows == m.ncols);
+    SYM_ASSERT(m.nrows == m.ncols);
 
     // METIS wants a symmetric matrix with no entries on the diagonal 
     i32 ndiag = 0;
@@ -41,12 +41,12 @@ void sym_get_metis_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocato
 
         j += 2;
       }
-      assert(j == m2_nnz);
+      SYM_ASSERT(j == m2_nnz);
     }
 
     i32* temp_perm = (i32*) alloc->malloc(m2_nnz * sizeof(i32), alloc->ctx);
     sym_csc_mat m2 = sym_csc_from_deduped_pairs(m2_rows, m2_cols, m2_nnz, m.nrows, m.ncols, temp_perm, alloc);
-    assert(m2.nnz == m2_nnz);
+    SYM_ASSERT(m2.nnz == m2_nnz);
 
     alloc->free(temp_perm, m2_nnz * sizeof(i32), alloc->ctx);
 
@@ -55,13 +55,13 @@ void sym_get_metis_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocato
 
     i32* iperm = (i32*) alloc->malloc(m.ncols * sizeof(i32), alloc->ctx); // yep, this is required
     int result = METIS_NodeND(&m.ncols, m2.col_starts, m2.row_indices, weights, NULL, perm, iperm);
-    assert(result == METIS_OK);
+    SYM_ASSERT(result == METIS_OK);
     alloc->free(iperm, m.ncols * sizeof(i32), alloc->ctx);
     sym_csc_mat_free(m2, alloc);
 }
 
 sym_csc_mat sym_permute_lower_tri_matrix(sym_csc_mat m, i32* iperm, i32* nz_perm, sym_allocator* alloc) {
-    assert(m.nrows == m.ncols);
+    SYM_ASSERT(m.nrows == m.ncols);
 
     i32* rows = (i32*) alloc->malloc(m.nnz * sizeof(i32), alloc->ctx);
     i32* cols = (i32*) alloc->malloc(m.nnz * sizeof(i32), alloc->ctx);
@@ -170,8 +170,8 @@ sym_linearizer sym_linearizer_new(
                 ++col;
             }
         }
-        assert(col == Hl_size);
-        assert(Hl_col_starts[Hl_size] == Hl_nnz);
+        SYM_ASSERT(col == Hl_size);
+        SYM_ASSERT(Hl_col_starts[Hl_size] == Hl_nnz);
     }
 
     alloc->free(Hl_nnz_by_col_key, nkeys * sizeof(i32), alloc->ctx);
@@ -275,7 +275,7 @@ void sym_linearizer_add_hessian_rect_block(
     i32 block_index, i32 row_key, i32 col_key,
     f64* data, i32 stride, i32 data_row_key_offset, i32 data_col_key_offset
 ) {
-    assert(data_row_key_offset > data_col_key_offset);
+    SYM_ASSERT(data_row_key_offset > data_col_key_offset);
 
     i32 new_row_key = lzr.key_iperm[row_key];
     i32 new_col_key = lzr.key_iperm[col_key];

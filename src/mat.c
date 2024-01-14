@@ -1,13 +1,13 @@
 #include "mat.h"
 
 #include <string.h>
-#include <assert.h>
+#include "sym_assert.h"
 #include <stdio.h>
 
 sym_vec sym_vec_new(i32 n, sym_allocator* alloc) {
     sym_vec v = {
         .n = n,
-        .data = alloc->malloc(n, alloc->ctx)
+        .data = alloc->malloc(n * sizeof(f64), alloc->ctx)
     };
     return v;
 }
@@ -41,7 +41,7 @@ void sym_csc_mat_free(sym_csc_mat m, sym_allocator* alloc) {
 }
 
 void sym_csc_mat_zero(sym_csc_mat m) {
-    assert(m.data != NULL);
+    SYM_ASSERT(m.data != NULL);
     memset(m.data, 0, m.nnz * sizeof(f64));
 }
 
@@ -240,17 +240,19 @@ sym_csc_mat sym_transpose_csc(sym_csc_mat m, i32* perm, sym_allocator* alloc) {
         }
     }
 
-    sym_csc_mat mt = sym_csc_from_deduped_pairs(rows, cols, m.nnz, m.nrows, m.ncols, perm, alloc);
+    sym_csc_mat mt = sym_csc_from_deduped_pairs(rows, cols, m.nnz, m.ncols, m.nrows, perm, alloc);
     alloc->free(rows, m.nnz * sizeof(i32), alloc->ctx);
     alloc->free(cols, m.nnz * sizeof(i32), alloc->ctx);
 
-    f64* data = m.data == NULL ? NULL : (f64*) alloc->malloc(m.nnz * sizeof(f64), alloc->ctx);
-    if (data != NULL) {
+    if (m.data != NULL) {
+        f64* data = (f64*) alloc->malloc(m.nnz * sizeof(f64), alloc->ctx);
         for (i32 i = 0; i < m.nnz; ++i) {
             data[i] = m.data[perm[i]];
         }
+        mt.data = data;
+    } else {
+        mt.data = NULL;
     }
-    mt.data = data;
 
     return mt;
 }
@@ -274,7 +276,7 @@ void sym_print_csc_mat(sym_csc_mat m, sym_allocator* alloc) {
             }
         }
         printf("\n");
-        assert(nz_index == mt.col_starts[i + 1]);
+        SYM_ASSERT(nz_index == mt.col_starts[i + 1]);
     }
 
     alloc->free(perm, m.nnz * sizeof(i32), alloc->ctx);

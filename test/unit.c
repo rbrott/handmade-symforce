@@ -2,6 +2,7 @@
 #include "alloc.h"
 #include "arena.h"
 #include "solver.h"
+#include "sym_assert.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -246,5 +247,48 @@ int main() {
         assert(arena.nalloc == 0);
     }
 
+    // test sym_transpose_csc
+    printf("=== Testing sym_transpose_csc ===\n");
+    {
+        i32 A_col_starts[4] = {0, 1, 2, 4};
+        i32 A_row_indices[4] = {1, 1, 0, 1};
+        sym_csc_mat A = {
+            .nrows = 2,
+            .ncols = 3,
+            .nnz = 4,
+            .col_starts = A_col_starts,
+            .row_indices = A_row_indices,
+            .data = NULL,
+        };
+        i32 perm[4];
+        sym_csc_mat At = sym_transpose_csc(A, perm, alloc);
 
+        assert(A.nrows == At.ncols);
+        assert(A.ncols == At.nrows);
+        assert(A.nnz == At.nnz);
+
+        assert(At.col_starts[0] == 0);
+        assert(At.col_starts[1] == 1);
+        assert(At.col_starts[2] == 4);
+
+        assert(At.row_indices[0] == 2);
+        assert(At.row_indices[1] == 0);
+        assert(At.row_indices[2] == 1);
+        assert(At.row_indices[3] == 2);
+
+        f64 A_data[4] = {1.0, 2.0, 3.0, 4.0};
+        f64 At_data[4];
+        for (i32 i = 0; i < 4; ++i) {
+            At_data[i] = A_data[perm[i]];
+        }
+
+        assert(At_data[0] == 3.0);
+        assert(At_data[1] == 1.0);
+        assert(At_data[2] == 2.0);
+        assert(At_data[3] == 4.0);
+
+        sym_csc_mat_free(At, alloc);
+
+        assert(arena.nalloc == 0);
+    }
 }

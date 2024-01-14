@@ -1,6 +1,6 @@
 #include "arena.h"
 
-#include <assert.h>
+#include "sym_assert.h"
 #include <stdio.h>
 
 void *sym_arena_malloc(size n, void *ctx) {
@@ -8,7 +8,7 @@ void *sym_arena_malloc(size n, void *ctx) {
     size available = a->end - a->beg;
     // TODO: custom alignment?
     size alignment = -n & 15;
-    assert(n <= available - alignment);
+    SYM_ASSERT(n <= available - alignment);
     a->nalloc += n;
     return a->end -= n + alignment;
 }

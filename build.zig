@@ -155,6 +155,36 @@ pub fn build(b: *std.build.Builder) void {
     balTest.linkLibrary(libmetis);
     balTest.linkLibCpp();
 
+    const balDemo = b.addExecutable(.{
+        .name = "balDemo",
+        .target = target,
+        .optimize = optimize,
+    });
+    balDemo.addIncludePath(.{
+        .path="src",
+    });
+    balDemo.addIncludePath(.{
+        .path="test/bal",
+    });
+    balDemo.addIncludePath(.{
+        .path="eigen-3.4.0/include/eigen3",
+    });
+    balDemo.addCSourceFiles(&.{
+        "test/bal/demo.cc",
+        "test/bal/sym/rot3.cc",
+        "test/bal/sym/ops/rot3/storage_ops.cc",
+        "test/bal/sym/ops/rot3/group_ops.cc",
+        "test/bal/sym/ops/rot3/lie_group_ops.cc",
+        "test/bal/sym/pose3.cc",
+        "test/bal/sym/ops/pose3/storage_ops.cc",
+        "test/bal/sym/ops/pose3/group_ops.cc",
+        "test/bal/sym/ops/pose3/lie_group_ops.cc",
+    }, &.{
+    });
+    balDemo.linkLibrary(lib);
+    balDemo.linkLibrary(libmetis);
+    balDemo.linkLibCpp();
+
     const unit = b.addExecutable(.{
         .name = "unit",
         .target = target,
@@ -170,5 +200,6 @@ pub fn build(b: *std.build.Builder) void {
     unit.linkLibrary(libmetis);
 
     b.installArtifact(balTest);
+    b.installArtifact(balDemo);
     b.installArtifact(unit);
 }
