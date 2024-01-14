@@ -122,6 +122,7 @@ pub fn build(b: *std.build.Builder) void {
         "src/mat.c",
         "src/arena.c",
         "src/linearizer.c",
+        "src/solver.c",
     }, &.{});
 
     const balTest = b.addExecutable(.{
@@ -149,7 +150,6 @@ pub fn build(b: *std.build.Builder) void {
         "test/bal/sym/ops/pose3/group_ops.cc",
         "test/bal/sym/ops/pose3/lie_group_ops.cc",
     }, &.{
-        "-ffast-math", 
     });
     balTest.linkLibrary(lib);
     balTest.linkLibrary(libmetis);

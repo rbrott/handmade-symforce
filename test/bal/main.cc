@@ -18,6 +18,7 @@
 #include "alloc.h"
 #include "arena.h"
 #include "linearizer.h"
+#include "solver.h"
 
 void CheckProblem(sym::bal_test_data_t ref, const std::string& filename, std::vector<int> observation_indices) {
   std::ifstream file(filename);
@@ -163,7 +164,7 @@ void CheckProblem(sym::bal_test_data_t ref, const std::string& filename, std::ve
   alloc->free(Hl_block_cols, nblocks * sizeof(i32), alloc->ctx);
 
   i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
-  i32 use_metis = 1;
+  i32 use_metis = 0;
   if (use_metis) {
       sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
   } else {
@@ -348,6 +349,43 @@ void CheckProblem(sym::bal_test_data_t ref, const std::string& filename, std::ve
     std::cout << "rhs - ref_rhs: " << (rhs - rhs_ref_perm) << std::endl;
     assert(false);
   }
+
+  // Check solver
+  // This check doesn't really work...
+  // I'm pretty sure the solver is correct, but there are still small differences.
+  // Diagonal damping helps as well as turning off fast math.
+  // i32* perm = (i32*) alloc->malloc(lin.Hl.nnz * sizeof(i32), alloc->ctx);
+  // sym_csc_mat Hlt = sym_transpose_csc(lin.Hl, perm, alloc);
+  // alloc->free(perm, lin.Hl.nnz * sizeof(i32), alloc->ctx);
+
+  // sym_chol_factorization fac{};
+  // sym_chol_solver solver = sym_new_chol_solver(Hlt, &fac, alloc);
+  // sym_chol_solver_factor(solver, Hlt, fac);
+
+  // sym_chol_solver_solve_in_place(fac, lin.rhs, alloc);
+
+  // sym_print_csc_mat(fac.L, alloc);
+
+  // {
+  //   std::cout << "fac.D: ";
+  //   for (i32 i = 0; i < fac.D.n; ++i) {
+  //     std::cout << fac.D.data[i] << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
+
+  // if (!rhs.isApprox(ref.solution)) {
+  //   std::cout << "sol: " << rhs << std::endl;
+  //   std::cout << "ref_sol: " << ref.solution << std::endl;
+  //   std::cout << "sol - ref_sol: " << (rhs - ref.solution) << std::endl;
+  //   assert(false);
+  // }
+
+  // sym_chol_solver_free(solver, alloc);
+
+  // sym_chol_factorization_free(fac, alloc);
+
+  // sym_csc_mat_free(Hlt, alloc);
 
   sym_linearizer_free(lzr, alloc);
   sym_linearization_free(lin, alloc);

@@ -20,7 +20,6 @@
 namespace sym
 {
 
-/// just linearization stuff for now
 class bal_test_data_t
 {
     public:
@@ -34,6 +33,10 @@ class bal_test_data_t
 
         ::eigen_lcm::VectorXd rhs;
 
+        // solver stuff
+        // hessian \ rhs
+        ::eigen_lcm::VectorXd solution;
+
     public:
         bal_test_data_t() = default;
 
@@ -45,7 +48,8 @@ class bal_test_data_t
             const ::eigen_lcm::VectorXd& residual_arg,
             const ::sym::sparse_matrix_structure_t& hessian_structure_arg,
             const ::eigen_lcm::VectorXd& hessian_data_arg,
-            const ::eigen_lcm::VectorXd& rhs_arg
+            const ::eigen_lcm::VectorXd& rhs_arg,
+            const ::eigen_lcm::VectorXd& solution_arg
         );
 
         /**
@@ -111,10 +115,11 @@ class bal_test_data_t
                     return 0;
             const __lcm_hash_ptr cp = { p, bal_test_data_t::getHash };
 
-            uint64_t hash = 0x3be79f9832dd5209LL +
+            uint64_t hash = 0x303af12e3b7d9479LL +
                 ::sym::key_t::_computeHash(&cp) +
          ::eigen_lcm::VectorXd::_computeHash(&cp) +
          ::sym::sparse_matrix_structure_t::_computeHash(&cp) +
+         ::eigen_lcm::VectorXd::_computeHash(&cp) +
          ::eigen_lcm::VectorXd::_computeHash(&cp) +
          ::eigen_lcm::VectorXd::_computeHash(&cp);
 
@@ -140,7 +145,8 @@ class bal_test_data_t
             stream << "residual=" << obj.residual << ", ";
             stream << "hessian_structure=" << obj.hessian_structure << ", ";
             stream << "hessian_data=" << obj.hessian_data << ", ";
-            stream << "rhs=" << obj.rhs;
+            stream << "rhs=" << obj.rhs << ", ";
+            stream << "solution=" << obj.solution;
             stream << ")";
 #else
             stream << "<FORMATTING DISABLED>";
@@ -154,12 +160,14 @@ bal_test_data_t::bal_test_data_t(
     const ::eigen_lcm::VectorXd& residual_arg,
     const ::sym::sparse_matrix_structure_t& hessian_structure_arg,
     const ::eigen_lcm::VectorXd& hessian_data_arg,
-    const ::eigen_lcm::VectorXd& rhs_arg
+    const ::eigen_lcm::VectorXd& rhs_arg,
+    const ::eigen_lcm::VectorXd& solution_arg
 ) : optimized_keys(optimized_keys_arg),
     residual(residual_arg),
     hessian_structure(hessian_structure_arg),
     hessian_data(hessian_data_arg),
-    rhs(rhs_arg) {}
+    rhs(rhs_arg),
+    solution(solution_arg) {}
 
 __lcm_buffer_size bal_test_data_t::encode(void *buf, __lcm_buffer_size offset, __lcm_buffer_size maxlen) const
 {
@@ -240,6 +248,9 @@ __lcm_buffer_size bal_test_data_t::_encodeNoHash(void *buf, __lcm_buffer_size of
     tlen = this->rhs._encodeNoHash(buf, offset + pos, maxlen - pos);
     if(tlen < 0) return tlen; else pos += tlen;
 
+    tlen = this->solution._encodeNoHash(buf, offset + pos, maxlen - pos);
+    if(tlen < 0) return tlen; else pos += tlen;
+
     return pos;
 }
 
@@ -269,6 +280,9 @@ __lcm_buffer_size bal_test_data_t::_decodeNoHash(const void *buf, __lcm_buffer_s
     tlen = this->rhs._decodeNoHash(buf, offset + pos, maxlen - pos);
     if(tlen < 0) return tlen; else pos += tlen;
 
+    tlen = this->solution._decodeNoHash(buf, offset + pos, maxlen - pos);
+    if(tlen < 0) return tlen; else pos += tlen;
+
     return pos;
 }
 
@@ -283,6 +297,7 @@ __lcm_buffer_size bal_test_data_t::_getEncodedSizeNoHash() const
     enc_size += this->hessian_structure._getEncodedSizeNoHash();
     enc_size += this->hessian_data._getEncodedSizeNoHash();
     enc_size += this->rhs._getEncodedSizeNoHash();
+    enc_size += this->solution._getEncodedSizeNoHash();
     return enc_size;
 }
 
@@ -292,7 +307,8 @@ bool bal_test_data_t::operator==(const bal_test_data_t& other) const {
           (residual==other.residual) && 
           (hessian_structure==other.hessian_structure) && 
           (hessian_data==other.hessian_data) && 
-          (rhs==other.rhs));
+          (rhs==other.rhs) && 
+          (solution==other.solution));
 }
 
 bool bal_test_data_t::operator!=(const bal_test_data_t& other) const {

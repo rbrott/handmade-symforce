@@ -1,6 +1,7 @@
 #include "linearizer.h"
 #include "alloc.h"
 #include "arena.h"
+#include "solver.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -178,4 +179,72 @@ int main() {
 
         assert(arena.nalloc == 0);
     }
+
+    // test sym_solver
+    printf("=== Testing sym_solver ===\n");
+    {
+        // TODO: this isn't quite a proper factorization, but we'll go with it anyway
+        // L = {{0, 0}, {0, 0.5}}
+        // D = diag({4, 1})
+        // L D L^t = {{4, 2}, {2, 2}}
+        i32 L_col_starts[2] = {0, 1};
+        i32 L_row_indices[1] = {1};
+        f64 L_data[1] = {0.5};
+        f64 D_data[2] = {4.0, 1.0};
+        sym_chol_factorization fac = {
+            .L = {
+                .nrows = 2,
+                .ncols = 2,
+                .nnz = 1,
+                .col_starts = L_col_starts,
+                .row_indices = L_row_indices,
+                .data = L_data,
+            },
+            .D = {
+                .n = 2,
+                .data = D_data,
+            }
+        };
+
+        f64 x_data[2] = {4.0, 2.0};
+        sym_vec x = {
+            .n = 2,
+            .data = x_data,
+        };
+        sym_chol_solver_solve_in_place(fac, x, alloc);
+        assert(x.data[0] == 1.0);
+        assert(x.data[1] == 0.0);
+
+        x.data[0] = 2.0;
+        x.data[1] = 0.0;
+        sym_chol_solver_solve_in_place(fac, x, alloc);
+        assert(x.data[0] == 1.0);
+        assert(x.data[1] == -1.0);
+
+        i32 A_col_starts[3] = {0, 1, 3};
+        i32 A_row_indices[3] = {0, 0, 1};
+        f64 A_data[3] = {4.0, 2.0, 2.0};
+        sym_csc_mat A = {
+            .nrows = 2,
+            .ncols = 2,
+            .nnz = 3,
+            .col_starts = A_col_starts,
+            .row_indices = A_row_indices,
+            .data = A_data,
+        };
+        sym_chol_solver solver = sym_new_chol_solver(A, &fac, alloc);
+        sym_chol_solver_factor(solver, A, fac);
+        assert(fac.L.nnz == 1);
+        assert(fac.L.col_starts[0] == 0);
+        assert(fac.L.col_starts[1] == 1);
+        assert(fac.L.row_indices[0] == 1);
+        assert(fac.L.data[0] == 0.5);
+
+        sym_chol_solver_free(solver, alloc);
+        sym_chol_factorization_free(fac, alloc);
+
+        assert(arena.nalloc == 0);
+    }
+
+
 }
