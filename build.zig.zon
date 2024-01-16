@@ -1,0 +1,21 @@
+.{
+    .name = "handmade-symforce",
+    .version = "0.0.1",
+    .dependencies = .{
+        .metis = .{
+            .url = "https://github.com/rbrott/metis/archive/refs/tags/v5.1.0.tar.gz",
+            .hash = "1220af28e2d1b500603b4bef137ab859455f38eb7f35b83dc9ee08a137005a2df66f",
+        },
+        // Eigen used for tests only
+        .eigen = .{
+            .url = "https://github.com/rbrott/eigen/archive/refs/tags/v3.4.0-headers.tar.gz",
+            .hash = "12202a3f780366b9b8a6021eb05f9bb0ed7631573df6f312f4aa3b99b22849725d83",
+        },
+    },
+    .paths = .{
+        "src",
+        "test",
+        "build.zig",
+        "build.zig.zon",
+    },
+}
