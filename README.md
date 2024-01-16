@@ -6,7 +6,7 @@ optimizer to C. Implements just enough to optimize
 problems.
 
 ```
-/usr/bin/time -l zig-out/bin/balDemo test/bal/data/problem-21-11315-pre.txt
+$ /usr/bin/time -l zig-out/bin/balDemo test/bal/data/problem-21-11315-pre.txt
 Allocating 1073741824 bytes
 BAL optimizer [iter    0] lambda: 1.000000e+00, error prev/new: 4.413239e+06/3.606385e+04, rel reduction: 9.918283e-01
 BAL optimizer [iter    1] lambda: 2.500000e-01, error prev/new: 3.606385e+04/3.180932e+04, rel reduction: 1.179722e-01
