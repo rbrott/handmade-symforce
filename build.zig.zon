@@ -11,6 +11,10 @@
             .url = "https://github.com/rbrott/eigen/archive/refs/tags/v3.4.0-headers.tar.gz",
             .hash = "12202a3f780366b9b8a6021eb05f9bb0ed7631573df6f312f4aa3b99b22849725d83",
         },
+        .suitesparse = .{
+            .url = "https://github.com/rbrott/suite-sparse/archive/refs/tags/v7.6.0.tar.gz",
+            .hash = "122003ab3229ffb639592e87d5ad28d947a0e69fe7ebd5167fe6d7d3becd1af44fb2",
+        },
     },
     .paths = .{
         "src",

@@ -83,6 +83,44 @@ pub fn build(b: *std.Build) void {
     balDemo.linkLibrary(lib);
     balDemo.linkLibrary(libmetis);
 
+    const suitesparse = b.dependency("suitesparse", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const cholmod = suitesparse.artifact("cholmod");
+
+    const balDemoCholmod = b.addExecutable(.{
+        .name = "balDemoCholmod",
+        .target = target,
+        .optimize = optimize,
+    });
+    balDemoCholmod.addIncludePath(.{
+        .path="src",
+    });
+    balDemoCholmod.addIncludePath(.{
+        .path="test/bal",
+    });
+    balDemoCholmod.addIncludePath(suitesparse.path("SuiteSparse_config"));
+    balDemoCholmod.addIncludePath(suitesparse.path("CHOLMOD/Include"));
+    balDemoCholmod.addCSourceFiles(.{
+        .files = &.{
+            "test/bal/demo_cholmod.c",
+            "test/bal/cholmod_shim.c",
+        }, 
+        .flags = &.{
+            "-DNCHECK",
+            "-DNPARTITION",
+            "-DNCAMD",
+            "-DNMATRIXOPS",
+            "-DNMODIFY",
+            "-DNSUPERNODAL",
+            "-DNPRINT",
+        },
+    });
+    balDemoCholmod.linkLibrary(lib);
+    balDemoCholmod.linkLibrary(libmetis);
+    balDemoCholmod.linkLibrary(cholmod);
+
     const unit = b.addExecutable(.{
         .name = "unit",
         .target = target,
@@ -102,5 +140,6 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(balTest);
     b.installArtifact(balDemo);
+    b.installArtifact(balDemoCholmod);
     b.installArtifact(unit);
 }
