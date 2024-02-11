@@ -251,6 +251,9 @@ int main(int argc, char** argv) {
     alloc
   );
 
+  f64* old_lin_rhs_data = (f64*) alloc->malloc(lin.rhs.n * sizeof(f64), alloc->ctx);
+  f64* old_lin_Hl_data = (f64*) alloc->malloc(lin.Hl.nnz * sizeof(f64), alloc->ctx);
+
   sym_csc_mat_free(Hl_block, alloc);
 
   alloc->free(key_perm, nkeys * sizeof(i32), alloc->ctx);
@@ -276,6 +279,14 @@ int main(int argc, char** argv) {
   f64 lambda = initial_lambda;
   i32 iteration = 0;
   while (1) {
+    // store the old linearization values
+    for (i32 i = 0; i < lin.rhs.n; ++i) {
+      old_lin_rhs_data[i] = lin.rhs.data[i];
+    }
+    for (i32 i = 0; i < lin.Hl.nnz; ++i) {
+      old_lin_Hl_data[i] = lin.Hl.data[i];
+    }
+
     // damp the last Hessian (just unit diagonal damping)
     for (i32 i = 0; i < lin.Hl.nrows; ++i) {
       i32 j = lin.Hl.col_starts[i];
@@ -327,7 +338,7 @@ int main(int argc, char** argv) {
     f64 error = bal_linearize(p, lzr, lin, temp_values, epsilon);
     f64 relative_reduction = (last_error - error) / (last_error + epsilon);
 
-    printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %e\n", 
+    printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %+e\n", 
       iteration, lambda, last_error, error, relative_reduction);
 
     if (relative_reduction > -early_exit_min_reduction / 10 &&
@@ -344,9 +355,7 @@ int main(int argc, char** argv) {
       break;
     }
 
-    if (!accept_update) {
-      lambda *= lambda_up_factor;
-    } else {
+    if (accept_update) {
       lambda *= lambda_down_factor;
       // TODO: is this right?
       last_error = error;
@@ -357,12 +366,25 @@ int main(int argc, char** argv) {
         values = temp_values;
         temp_values = values_tmp;
       }
+    } else {
+      lambda *= lambda_up_factor;
+
+      // restore the old linearization
+      for (i32 i = 0; i < lin.rhs.n; ++i) {
+        lin.rhs.data[i] = old_lin_rhs_data[i];
+      }
+      for (i32 i = 0; i < lin.Hl.nnz; ++i) {
+        lin.Hl.data[i] = old_lin_Hl_data[i];
+      }
     }
 
     lambda = fmax(fmin(lambda, lambda_upper_bound), lambda_lower_bound);
 
     ++iteration;
   }
+
+  alloc->free(old_lin_rhs_data, lin.rhs.n * sizeof(f64), alloc->ctx);
+  alloc->free(old_lin_Hl_data, lin.Hl.nnz * sizeof(f64), alloc->ctx);
 
   alloc->free(Hlt_perm, lin.Hl.nnz * sizeof(i32), alloc->ctx);
 
