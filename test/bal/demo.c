@@ -279,7 +279,7 @@ int main(int argc, char** argv) {
   f64 lambda_up_factor = 4.0;
   f64 lambda_down_factor = 1 / 4.0;
   f64 lambda_lower_bound = 0.0;
-  f64 lambda_upper_bound = 1000000.0;
+  f64 lambda_upper_bound = 1e10;
   f64 early_exit_min_reduction = 1e-6;
 
   #ifdef SYM_LOG_STATS
