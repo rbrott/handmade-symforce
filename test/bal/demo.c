@@ -50,6 +50,14 @@ f64 bal_linearize(bal_problem p, sym_linearizer lzr, sym_linearization lin, f64*
     i32 point_index = p.point_indices[obs_index];
     i32 point_key = 2 * p.num_cameras + point_index;
 
+    // 100+ have problems with camera at index 72
+    // 257 also has a bad camera at index 238
+    // TODO: focal length seems to be a problem
+    //   this could probably be fixed with a prior or different focal length parameterization
+    // if (camera_index == 72 || camera_index == 238) {
+    //   continue;
+    // }
+
     snavely_reprojection_factor(values + 10 * camera_index,
                                 values + 10 * camera_index + 7,
                                 values + 10 * p.num_cameras + 3 * point_index,
