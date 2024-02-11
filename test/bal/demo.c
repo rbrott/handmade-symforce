@@ -3,6 +3,13 @@
  * This source code is under the Apache 2.0 license found in the LICENSE file.
  * ---------------------------------------------------------------------------- */
 
+// If defined, deltas from each iteration will be written to /tmp/stats
+// #define SYM_LOG_STATS
+
+#ifdef SYM_LOG_STATS
+#include <sys/stat.h>
+#endif
+
 #include <math.h>
 #include <float.h>
 #include <stdbool.h>
@@ -275,6 +282,13 @@ int main(int argc, char** argv) {
   f64 lambda_upper_bound = 1000000.0;
   f64 early_exit_min_reduction = 1e-6;
 
+  #ifdef SYM_LOG_STATS
+  if (mkdir("/tmp/stats", 0777)) {
+    perror("/tmp/stats");
+    abort();
+  }
+  #endif
+
   f64 last_error = bal_linearize(p, lzr, lin, values, epsilon);
   f64 lambda = initial_lambda;
   i32 iteration = 0;
@@ -337,6 +351,43 @@ int main(int argc, char** argv) {
 
     f64 error = bal_linearize(p, lzr, lin, temp_values, epsilon);
     f64 relative_reduction = (last_error - error) / (last_error + epsilon);
+
+    #ifdef SYM_LOG_STATS
+    char filename[100];
+    sprintf(filename, "/tmp/stats/iter_%02d.bin", iteration);
+    FILE* stats_file = fopen(filename, "wb");
+
+    f64* camera_delta = (f64*) alloc->malloc(9 * p.num_cameras * sizeof(f64), alloc->ctx);
+    for (i32 i = 0; i < p.num_cameras; ++i) {
+      i32 pose_key = 2 * i + 0;
+      i32 intrinsics_key = 2 * i + 1;
+      for (i32 j = 0; j < 6; ++j) {
+        camera_delta[9 * i + j] = x.data[lzr.key_size_scan[lzr.key_iperm[pose_key]] + j];
+      }
+      for (i32 j = 0; j < 3; ++j) {
+        camera_delta[9 * i + 6 + j] = x.data[lzr.key_size_scan[lzr.key_iperm[intrinsics_key]] + j];
+      }
+    }
+
+    f64* point_delta = (f64*) alloc->malloc(3 * p.num_points * sizeof(f64), alloc->ctx);
+    for (i32 i = 0; i < p.num_points; ++i) {
+      i32 point_key = 2 * p.num_cameras + i;
+      for (i32 j = 0; j < 3; ++j) {
+        point_delta[3 * i + j] = x.data[lzr.key_size_scan[lzr.key_iperm[point_key]] + j];
+      }
+    }
+
+    fwrite(&p.num_cameras, sizeof(i32), 1, stats_file);
+    fwrite(&p.num_points, sizeof(i32), 1, stats_file);
+    fwrite(camera_delta, sizeof(f64), 9 * p.num_cameras, stats_file);
+    fwrite(point_delta, sizeof(f64), 3 * p.num_points, stats_file);
+
+    alloc->free(point_delta, 3 * p.num_points * sizeof(f64), alloc->ctx);
+    alloc->free(camera_delta, 9 * p.num_cameras * sizeof(f64), alloc->ctx);
+
+    fclose(stats_file);
+    #endif
+
 
     printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %+e\n", 
       iteration, lambda, last_error, error, relative_reduction);
