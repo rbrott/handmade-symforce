@@ -1,4 +1,38 @@
+const builtin = @import("builtin");
 const std = @import("std");
+
+// cribbed from https://github.com/spiraldb/ziggy-pydust/blob/16da6a0cc4ec10295526b7abef0bcfb9dabb65f0/build.zig
+const runProcess = if (builtin.zig_version.minor >= 12) std.process.Child.run else std.process.Child.exec;
+
+fn getPythonIncludePath(
+    python_exe: []const u8,
+    allocator: std.mem.Allocator,
+) ![]const u8 {
+    const includeResult = try runProcess(.{
+        .allocator = allocator,
+        .argv = &.{ python_exe, "-c", "import sysconfig; print(sysconfig.get_path('include'), end='')" },
+    });
+    defer allocator.free(includeResult.stderr);
+    return includeResult.stdout;
+}
+
+fn getPythonLibraryPath(python_exe: []const u8, allocator: std.mem.Allocator) ![]const u8 {
+    const includeResult = try runProcess(.{
+        .allocator = allocator,
+        .argv = &.{ python_exe, "-c", "import sysconfig; print(sysconfig.get_config_var('LIBDIR'), end='')" },
+    });
+    defer allocator.free(includeResult.stderr);
+    return includeResult.stdout;
+}
+
+fn getPythonLDVersion(python_exe: []const u8, allocator: std.mem.Allocator) ![]const u8 {
+    const includeResult = try runProcess(.{
+        .allocator = allocator,
+        .argv = &.{ python_exe, "-c", "import sysconfig; print(sysconfig.get_config_var('LDVERSION'), end='')" },
+    });
+    defer allocator.free(includeResult.stderr);
+    return includeResult.stdout;
+}
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -25,7 +59,7 @@ pub fn build(b: *std.Build) void {
             "src/arena.c",
             "src/linearizer.c",
             "src/solver.c",
-        }, 
+        },
         .flags = &.{}
     });
 
@@ -54,7 +88,7 @@ pub fn build(b: *std.Build) void {
             "test/bal/sym/ops/pose3/storage_ops.cc",
             "test/bal/sym/ops/pose3/group_ops.cc",
             "test/bal/sym/ops/pose3/lie_group_ops.cc",
-        }, 
+        },
         .flags = &.{}
     });
     balTest.linkLibrary(lib);
@@ -77,7 +111,7 @@ pub fn build(b: *std.Build) void {
     balDemo.addCSourceFiles(.{
         .files = &.{
             "test/bal/demo.c",
-        }, 
+        },
         .flags = &.{}
     });
     balDemo.linkLibrary(lib);
@@ -106,7 +140,7 @@ pub fn build(b: *std.Build) void {
         .files = &.{
             "test/bal/demo_cholmod.c",
             "test/bal/cholmod_shim.c",
-        }, 
+        },
         .flags = &.{
             "-DNCHECK",
             "-DNPARTITION",
@@ -132,7 +166,7 @@ pub fn build(b: *std.Build) void {
     unit.addCSourceFiles(.{
         .files = &.{
             "test/unit.c",
-        }, 
+        },
         .flags = &.{}
     });
     unit.linkLibrary(lib);
@@ -142,4 +176,40 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(balDemo);
     b.installArtifact(balDemoCholmod);
     b.installArtifact(unit);
+
+    const python_exe = b.option([]const u8, "python-exe", "Python executable to use") orelse "python";
+
+    const pythonInc = getPythonIncludePath(python_exe, b.allocator) catch @panic("Missing python");
+    const pythonLib = getPythonLibraryPath(python_exe, b.allocator) catch @panic("Missing python");
+    const pythonVer = getPythonLDVersion(python_exe, b.allocator) catch @panic("Missing python");
+    const pythonLibName = std.fmt.allocPrint(b.allocator, "python{s}", .{pythonVer}) catch @panic("Missing python");
+
+    const balModule = b.addSharedLibrary(.{
+        .name = "balmodule",
+        .target = target,
+        .optimize = optimize,
+    });
+    balModule.addIncludePath(.{
+        .path=pythonInc,
+    });
+    balModule.addIncludePath(.{
+        .path=std.fmt.allocPrint(b.allocator, "venv/lib/{s}/site-packages/numpy/core/include/numpy", .{pythonLibName}) catch @panic("Missing python"),
+    });
+    balModule.addIncludePath(.{
+        .path="test/bal",
+    });
+    balModule.addIncludePath(.{
+        .path="src",
+    });
+    balModule.addCSourceFiles(.{
+        .files = &.{
+            "test/bal/py/balmodule.c",
+        },
+        .flags = &.{}
+    });
+    balModule.addLibraryPath(.{ .path = pythonLib });
+    balModule.linkSystemLibrary(pythonLibName);
+    // Rename the shared library so Python can find it.
+    const balInstallStep = b.addInstallArtifact(balModule, .{ .dest_sub_path = "bal.so" });
+    b.getInstallStep().dependOn(&balInstallStep.step);
 }
