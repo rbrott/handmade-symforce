@@ -41,7 +41,7 @@ max_nalloc = 63461280
 
 ## Building from Source
 
-Tested with [Zig](https://ziglang.org/) `0.12.0-dev.2208+4debd4338`.
+Tested with [Zig](https://ziglang.org/) `0.13.0`
 
 ```
 zig build

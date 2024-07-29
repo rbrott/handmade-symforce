@@ -3,8 +3,8 @@
     .version = "0.0.1",
     .dependencies = .{
         .metis = .{
-            .url = "https://github.com/rbrott/metis/archive/refs/tags/v5.1.0.tar.gz",
-            .hash = "1220af28e2d1b500603b4bef137ab859455f38eb7f35b83dc9ee08a137005a2df66f",
+            .url = "https://github.com/rbrott/metis/archive/a6afb8c40eca52f2a11d2ce0879f45a20da827bf.tar.gz",
+            .hash = "1220b0efb5210fb4d492762335c939e92f3803c6ea7d3f363a8cbf1b55208c701036",
         },
         // Eigen used for tests only
         .eigen = .{
@@ -12,8 +12,8 @@
             .hash = "12202a3f780366b9b8a6021eb05f9bb0ed7631573df6f312f4aa3b99b22849725d83",
         },
         .suitesparse = .{
-            .url = "https://github.com/rbrott/suite-sparse/archive/refs/tags/v7.6.0.tar.gz",
-            .hash = "122003ab3229ffb639592e87d5ad28d947a0e69fe7ebd5167fe6d7d3becd1af44fb2",
+            .url = "https://github.com/rbrott/suite-sparse/archive/1a6d1a07aab71856ad73964316f6f5e5ff0680d9.tar.gz",
+            .hash = "122030d92544e0f9d7113b5e60dc9ff4cf273f51464e33e42a5eaa018dc145be2841",
         },
     },
     .paths = .{

@@ -49,9 +49,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    lib.addIncludePath(.{
-        .path="src",
-    });
+    lib.addIncludePath(b.path("src"));
     lib.addIncludePath(metis.path("include"));
     lib.addCSourceFiles(.{
         .files = &.{
@@ -70,12 +68,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    balTest.addIncludePath(.{
-        .path="src",
-    });
-    balTest.addIncludePath(.{
-        .path="test/bal",
-    });
+    balTest.addIncludePath(b.path("src"));
+    balTest.addIncludePath(b.path("test/bal"));
     balTest.addIncludePath(eigen.path(""));
     balTest.addCSourceFiles(.{
         .files = &.{
@@ -100,12 +94,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    balDemo.addIncludePath(.{
-        .path="src",
-    });
-    balDemo.addIncludePath(.{
-        .path="test/bal",
-    });
+    balDemo.addIncludePath(b.path("src"));
+    balDemo.addIncludePath(b.path("test/bal"));
     // -ffast-math doesn't seem to gain much
     // it does turn pow(x, 2) into x * x though
     balDemo.addCSourceFiles(.{
@@ -128,12 +118,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    balDemoCholmod.addIncludePath(.{
-        .path="src",
-    });
-    balDemoCholmod.addIncludePath(.{
-        .path="test/bal",
-    });
+    balDemoCholmod.addIncludePath(b.path("src"));
+    balDemoCholmod.addIncludePath(b.path("test/bal"));
     balDemoCholmod.addIncludePath(suitesparse.path("SuiteSparse_config"));
     balDemoCholmod.addIncludePath(suitesparse.path("CHOLMOD/Include"));
     balDemoCholmod.addCSourceFiles(.{
@@ -160,9 +146,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
-    unit.addIncludePath(.{
-        .path="src",
-    });
+    unit.addIncludePath(b.path("src"));
     unit.addCSourceFiles(.{
         .files = &.{
             "test/unit.c",
@@ -189,25 +173,19 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    balModule.addIncludePath(.{ .cwd_relative = pythonInc });
     balModule.addIncludePath(.{
-        .path=pythonInc,
+        .cwd_relative = std.fmt.allocPrint(b.allocator, "venv/lib/{s}/site-packages/numpy/core/include/numpy", .{pythonLibName}) catch @panic("Missing python"),
     });
-    balModule.addIncludePath(.{
-        .path=std.fmt.allocPrint(b.allocator, "venv/lib/{s}/site-packages/numpy/core/include/numpy", .{pythonLibName}) catch @panic("Missing python"),
-    });
-    balModule.addIncludePath(.{
-        .path="test/bal",
-    });
-    balModule.addIncludePath(.{
-        .path="src",
-    });
+    balModule.addIncludePath(b.path("test/bal"));
+    balModule.addIncludePath(b.path("src"));
     balModule.addCSourceFiles(.{
         .files = &.{
             "test/bal/py/balmodule.c",
         },
         .flags = &.{}
     });
-    balModule.addLibraryPath(.{ .path = pythonLib });
+    balModule.addLibraryPath(.{ .cwd_relative = pythonLib });
     balModule.linkSystemLibrary(pythonLibName);
     // Rename the shared library so Python can find it.
     const balInstallStep = b.addInstallArtifact(balModule, .{ .dest_sub_path = "bal.so" });
