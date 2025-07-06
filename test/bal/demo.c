@@ -64,54 +64,54 @@ f64 bal_linearize(bal_problem p, sym_linearizer lzr, sym_linearization lin, f64*
                                 p.pixels + 2 * obs_index,
                                 epsilon,
                                 fac_res, NULL, fac_hessian_dense, fac_rhs);
-                            
+
     error += fac_res[0] * fac_res[0];
     error += fac_res[1] * fac_res[1];
 
     // NOTE: The block index order must match the order in the block triplets above.
     sym_linearizer_add_hessian_tri_block(
-      lzr, lin, 
-      6 * obs_index + 0, pose_key, 
+      lzr, lin,
+      6 * obs_index + 0, pose_key,
       fac_hessian_dense, 12, 0
     );
     sym_linearizer_add_hessian_rect_block(
-      lzr, lin, 
+      lzr, lin,
       6 * obs_index + 1, intrinsics_key, pose_key,
       fac_hessian_dense, 12, 6, 0
     );
     sym_linearizer_add_hessian_rect_block(
-      lzr, lin, 
+      lzr, lin,
       6 * obs_index + 2, point_key, pose_key,
       fac_hessian_dense, 12, 9, 0
     );
 
     sym_linearizer_add_hessian_tri_block(
-      lzr, lin, 
-      6 * obs_index + 3, intrinsics_key, 
+      lzr, lin,
+      6 * obs_index + 3, intrinsics_key,
       fac_hessian_dense, 12, 6
     );
     sym_linearizer_add_hessian_rect_block(
-      lzr, lin, 
+      lzr, lin,
       6 * obs_index + 4, point_key, intrinsics_key,
       fac_hessian_dense, 12, 9, 6
     );
 
     sym_linearizer_add_hessian_tri_block(
-      lzr, lin, 
-      6 * obs_index + 5, point_key, 
+      lzr, lin,
+      6 * obs_index + 5, point_key,
       fac_hessian_dense, 12, 9
     );
 
     sym_linearizer_add_rhs_block(
-      lzr, lin, pose_key, 
+      lzr, lin, pose_key,
       fac_rhs, 0
     );
     sym_linearizer_add_rhs_block(
-      lzr, lin, intrinsics_key, 
+      lzr, lin, intrinsics_key,
       fac_rhs, 6
     );
     sym_linearizer_add_rhs_block(
-      lzr, lin, point_key, 
+      lzr, lin, point_key,
       fac_rhs, 9
     );
   }
@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
   sym_linearization lin;
   sym_linearizer lzr = sym_linearizer_new(
     Hl_block, Hl_block_nz_indices, nblocks,
-    key_sizes, nkeys, 
+    key_sizes, nkeys,
     key_perm,
     &lin,
     alloc
@@ -397,7 +397,7 @@ int main(int argc, char** argv) {
     #endif
 
 
-    printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %+e\n", 
+    printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %+e\n",
       iteration, lambda, last_error, error, relative_reduction);
 
     if (relative_reduction > -early_exit_min_reduction / 10 &&
@@ -468,6 +468,6 @@ int main(int argc, char** argv) {
   printf("nalloc = %d\n", arena.nalloc);
   printf("max_nalloc = %d\n", arena.max_nalloc);
   SYM_ASSERT(arena.nalloc == 0);
-  
+
   free(buf);
 }
