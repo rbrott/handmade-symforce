@@ -67,7 +67,7 @@ void snavely_reprojection_factor(double* cam_T_world_storage, double* intrinsics
   double _tmp23 = -_tmp17 * point_storage[2] - _tmp19 * point_storage[0] -
                   _tmp22 * point_storage[1] - cam_T_world_storage[6];
   double _tmp24 = fmax(_tmp23, epsilon);
-  double _tmp25 = pow(_tmp24, -2);
+  double _tmp25 = 1 / pow(_tmp24, 2);
   double _tmp26 = _tmp1 + _tmp3;
   double _tmp27 = _tmp16 + _tmp6 + 1;
   double _tmp28 = -_tmp21;
@@ -94,7 +94,7 @@ void snavely_reprojection_factor(double* cam_T_world_storage, double* intrinsics
   double _tmp48 = -_tmp20;
   double _tmp49 = point_storage[1] * (_tmp44 + _tmp47) + point_storage[2] * (_tmp28 + _tmp48);
   double _tmp50 = (((_tmp23 - epsilon) > 0) - ((_tmp23 - epsilon) < 0)) + 1;
-  double _tmp51 = _tmp50 / pow(_tmp24, 3);
+  double _tmp51 = _tmp50 / (_tmp24 * pow(_tmp24, 2));
   double _tmp52 = _tmp33 * _tmp51;
   double _tmp53 = _tmp31 * _tmp51;
   double _tmp54 = -_tmp3;
@@ -175,8 +175,9 @@ void snavely_reprojection_factor(double* cam_T_world_storage, double* intrinsics
   double _tmp128 = _tmp34 * _tmp68;
   double _tmp129 = _tmp127 * _tmp36;
   double _tmp130 = pow(_tmp37, 2);
-  double _tmp131 = pow(_tmp35, 3);
-  double _tmp132 = pow(_tmp35, 4);
+  double _tmp131 = _tmp35 * pow(_tmp35, 2);
+  double _tmp131_2 = pow(_tmp35, 2);
+  double _tmp132 = pow(_tmp131_2, 2);
 
   // Output terms (4)
   if (res_storage != 0) {
