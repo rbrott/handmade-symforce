@@ -8,7 +8,7 @@
 void sym_get_metis_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocator* alloc) {
     SYM_ASSERT(m.nrows == m.ncols);
 
-    // METIS wants a symmetric matrix with no entries on the diagonal 
+    // METIS wants a symmetric matrix with no entries on the diagonal
     i32 ndiag = 0;
     for (i32 i = 0; i < m.ncols; ++i) {
         if (m.col_starts[i] == m.col_starts[i + 1]) {
@@ -131,7 +131,7 @@ sym_linearizer sym_linearizer_new(
     //   and really it's the max nnz for a triangular block
     i32* Hl_nnz_by_col_key = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
     for (i32 i = 0; i < nkeys; ++i) {
-        Hl_nnz_by_col_key[i] = 0; 
+        Hl_nnz_by_col_key[i] = 0;
     }
 
     i32* Hl_key_starts_by_block_nz = (i32*) alloc->malloc(Hl_block_permuted.nnz * sizeof(i32), alloc->ctx);
@@ -144,7 +144,7 @@ sym_linearizer sym_linearizer_new(
                 ++col;
                 key_start = 0;
             }
-            
+
             i32 key_size = key_size_scan[row + 1] - key_size_scan[row];
             Hl_nnz_by_col_key[col] += key_size;
 
@@ -153,7 +153,7 @@ sym_linearizer sym_linearizer_new(
             } else {
                 Hl_nnz += key_size * (key_size_scan[col + 1] - key_size_scan[col]);
             }
-            
+
             Hl_key_starts_by_block_nz[i] = key_start;
             key_start += key_size;
         }
@@ -248,8 +248,8 @@ void sym_linearization_clear(sym_linearization lin) {
 }
 
 void sym_linearizer_add_hessian_tri_block(
-    sym_linearizer lzr, sym_linearization lin, 
-    i32 block_index, i32 key, 
+    sym_linearizer lzr, sym_linearization lin,
+    i32 block_index, i32 key,
     f64* data, i32 stride, i32 data_key_offset
 ) {
     i32 new_key = lzr.key_iperm[key];
@@ -271,7 +271,7 @@ void sym_linearizer_add_hessian_tri_block(
 
 // for now, the row_key/col_key order must match the order in the dense block data data
 void sym_linearizer_add_hessian_rect_block(
-    sym_linearizer lzr, sym_linearization lin, 
+    sym_linearizer lzr, sym_linearization lin,
     i32 block_index, i32 row_key, i32 col_key,
     f64* data, i32 stride, i32 data_row_key_offset, i32 data_col_key_offset
 ) {
@@ -292,7 +292,7 @@ void sym_linearizer_add_hessian_rect_block(
         for (i32 i = 0; i < col_key_size; ++i) {
             i32 col_start = lin.Hl.col_starts[col_key_start + i];
             for (i32 j = 0; j < row_key_size; ++j) {
-                lin.Hl.data[col_start + (row_offset + j) - i] += 
+                lin.Hl.data[col_start + (row_offset + j) - i] +=
                     data[(data_col_key_offset + i) * stride + (data_row_key_offset + j)];
             }
         }
@@ -308,7 +308,7 @@ void sym_linearizer_add_hessian_rect_block(
 }
 
 void sym_linearizer_add_rhs_block(
-    sym_linearizer lzr, sym_linearization lin, i32 key, 
+    sym_linearizer lzr, sym_linearization lin, i32 key,
     f64* data, i32 data_offset) {
     i32 new_key = lzr.key_iperm[key];
     i32 key_start = lzr.key_size_scan[new_key];
