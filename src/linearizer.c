@@ -195,8 +195,6 @@ sym_linearizer sym_linearizer_new(
         }
     }
 
-    f64* Hl_data = (f64*) alloc->malloc(Hl_nnz * sizeof(f64), alloc->ctx);
-
     sym_csc_mat_free(Hl_block_permuted, alloc);
 
     sym_csc_mat Hl = {
@@ -205,14 +203,13 @@ sym_linearizer sym_linearizer_new(
         .nnz = Hl_nnz,
         .col_starts = Hl_col_starts,
         .row_indices = Hl_row_indices,
-        .data = Hl_data,
+        .data = NULL,
     };
     lin->Hl = Hl;
 
-    f64* rhs_data = (f64*) alloc->malloc(Hl_size * sizeof(f64), alloc->ctx);
     sym_vec rhs = {
         .n = Hl_size,
-        .data = rhs_data,
+        .data = NULL,
     };
     lin->rhs = rhs;
 

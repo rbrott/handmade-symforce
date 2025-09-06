@@ -27,6 +27,7 @@ typedef struct {
 void sym_get_metis_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocator* alloc);
 
 // Hl_block_nz_indices must outlive the linearizer
+// lin data is set to NULL
 sym_linearizer sym_linearizer_new(
     sym_csc_mat Hl_block,
     i32* Hl_block_nz_indices, i32 nblocks,

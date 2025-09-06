@@ -265,6 +265,8 @@ int main(int argc, char** argv) {
     &lin,
     alloc
   );
+  lin.Hl.data = (f64*) alloc->malloc(lin.Hl.nnz * sizeof(f64), alloc->ctx);
+  lin.rhs.data = (f64*) alloc->malloc(lin.rhs.n * sizeof(f64), alloc->ctx);
 
   f64* old_lin_rhs_data = (f64*) alloc->malloc(lin.rhs.n * sizeof(f64), alloc->ctx);
   f64* old_lin_Hl_data = (f64*) alloc->malloc(lin.Hl.nnz * sizeof(f64), alloc->ctx);
