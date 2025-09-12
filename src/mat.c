@@ -13,7 +13,9 @@ sym_vec sym_vec_new(i32 n, sym_allocator* alloc) {
 }
 
 void sym_vec_free(sym_vec v, sym_allocator* alloc) {
-    alloc->free(v.data, v.n * sizeof(f64), alloc->ctx);
+    if (v.data != NULL) {
+        alloc->free(v.data, v.n * sizeof(f64), alloc->ctx);
+    }
 }
 
 void sym_vec_zero(sym_vec v) {
