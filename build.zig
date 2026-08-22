@@ -1,77 +1,311 @@
-const builtin = @import("builtin");
 const std = @import("std");
 
-// cribbed from https://github.com/spiraldb/ziggy-pydust/blob/16da6a0cc4ec10295526b7abef0bcfb9dabb65f0/build.zig
-const runProcess = if (builtin.zig_version.minor >= 12) std.process.Child.run else std.process.Child.exec;
+const eigen_dir = "third_party/eigen-5.0.1";
+const metis_dir = "third_party/metis-5.1.0";
+const suitesparse_dir = "third_party/suite-sparse-7.6.0";
 
-fn getPythonIncludePath(
-    python_exe: []const u8,
-    allocator: std.mem.Allocator,
-) ![]const u8 {
-    const includeResult = try runProcess(.{
-        .allocator = allocator,
-        .argv = &.{ python_exe, "-c", "import sysconfig; print(sysconfig.get_path('include'), end='')" },
-    });
-    defer allocator.free(includeResult.stderr);
-    return includeResult.stdout;
+// Run `python_exe -c <expr>` at configure time and return its stdout.
+fn pythonQuery(b: *std.Build, python_exe: []const u8, expr: []const u8) []const u8 {
+    const result = std.process.run(b.allocator, b.graph.io, .{
+        .argv = &.{ python_exe, "-c", expr },
+    }) catch @panic("Missing python");
+    b.allocator.free(result.stderr);
+    return result.stdout;
 }
 
-fn getPythonLibraryPath(python_exe: []const u8, allocator: std.mem.Allocator) ![]const u8 {
-    const includeResult = try runProcess(.{
-        .allocator = allocator,
-        .argv = &.{ python_exe, "-c", "import sysconfig; print(sysconfig.get_config_var('LIBDIR'), end='')" },
-    });
-    defer allocator.free(includeResult.stderr);
-    return includeResult.stdout;
-}
+// GKlib source files (relative to metis-5.1.0/GKlib).
+const gklib_files = [_][]const u8{
+    "htable.c",
+    "itemsets.c",
+    "memory.c",
+    "gkregex.c",
+    "util.c",
+    "omp.c",
+    "io.c",
+    "fkvkselect.c",
+    "sort.c",
+    "evaluate.c",
+    "pqueue.c",
+    "string.c",
+    "random.c",
+    "fs.c",
+    "pdb.c",
+    "csr.c",
+    "timers.c",
+    "error.c",
+    "seq.c",
+    "b64.c",
+    "mcore.c",
+    "graph.c",
+    "blas.c",
+    "getopt.c",
+    "tokenizer.c",
+    "rw.c",
+};
 
-fn getPythonLDVersion(python_exe: []const u8, allocator: std.mem.Allocator) ![]const u8 {
-    const includeResult = try runProcess(.{
-        .allocator = allocator,
-        .argv = &.{ python_exe, "-c", "import sysconfig; print(sysconfig.get_config_var('LDVERSION'), end='')" },
-    });
-    defer allocator.free(includeResult.stderr);
-    return includeResult.stdout;
-}
+// libmetis source files (relative to metis-5.1.0/libmetis).
+const metis_files = [_][]const u8{
+    "kwayrefine.c",
+    "mincover.c",
+    "bucketsort.c",
+    "parmetis.c",
+    "util.c",
+    "kmetis.c",
+    "meshpart.c",
+    "compress.c",
+    "gklib.c",
+    "auxapi.c",
+    "separator.c",
+    "frename.c",
+    "mcutil.c",
+    "ometis.c",
+    "wspace.c",
+    "sfm.c",
+    "debug.c",
+    "balance.c",
+    "pmetis.c",
+    "mmd.c",
+    "refine.c",
+    "contig.c",
+    "coarsen.c",
+    "kwayfm.c",
+    "stat.c",
+    "checkgraph.c",
+    "timing.c",
+    "fm.c",
+    "fortran.c",
+    "initpart.c",
+    "graph.c",
+    "srefine.c",
+    "mesh.c",
+    "options.c",
+    "minconn.c",
+};
+
+// CHOLMOD source files (relative to suite-sparse-7.6.0).
+const cholmod_files = [_][]const u8{
+    "SuiteSparse_config/SuiteSparse_config.c",
+    "CHOLMOD/Cholesky/cholmod_factorize.c",
+    "CHOLMOD/Cholesky/cholmod_postorder.c",
+    "CHOLMOD/Cholesky/cholmod_rowcolcounts.c",
+    "CHOLMOD/Cholesky/cholmod_l_rowfac.c",
+    "CHOLMOD/Cholesky/cholmod_rcond.c",
+    "CHOLMOD/Cholesky/cholmod_resymbol.c",
+    "CHOLMOD/Cholesky/cholmod_etree.c",
+    "CHOLMOD/Cholesky/cholmod_l_solve.c",
+    "CHOLMOD/Cholesky/cholmod_solve.c",
+    "CHOLMOD/Cholesky/cholmod_rowfac.c",
+    "CHOLMOD/Cholesky/cholmod_l_rowcolcounts.c",
+    "CHOLMOD/Cholesky/cholmod_l_postorder.c",
+    "CHOLMOD/Cholesky/cholmod_l_factorize.c",
+    "CHOLMOD/Cholesky/cholmod_l_etree.c",
+    "CHOLMOD/Cholesky/cholmod_analyze.c",
+    "CHOLMOD/Cholesky/cholmod_l_spsolve.c",
+    "CHOLMOD/Cholesky/cholmod_l_rcond.c",
+    "CHOLMOD/Cholesky/cholmod_l_analyze.c",
+    "CHOLMOD/Cholesky/cholmod_spsolve.c",
+    "CHOLMOD/Cholesky/cholmod_l_resymbol.c",
+    "CHOLMOD/Utility/cholmod_l_hypot.c",
+    "CHOLMOD/Utility/cholmod_l_aat.c",
+    "CHOLMOD/Utility/cholmod_defaults.c",
+    "CHOLMOD/Utility/cholmod_xtype.c",
+    "CHOLMOD/Utility/cholmod_l_transpose_unsym.c",
+    "CHOLMOD/Utility/cholmod_ensure_dense.c",
+    "CHOLMOD/Utility/cholmod_l_mult_size_t.c",
+    "CHOLMOD/Utility/cholmod_score_comp.c",
+    "CHOLMOD/Utility/cholmod_l_sbound.c",
+    "CHOLMOD/Utility/cholmod_l_dense_to_sparse.c",
+    "CHOLMOD/Utility/cholmod_allocate_triplet.c",
+    "CHOLMOD/Utility/cholmod_l_copy_triplet.c",
+    "CHOLMOD/Utility/cholmod_set_empty.c",
+    "CHOLMOD/Utility/cholmod_dbound.c",
+    "CHOLMOD/Utility/cholmod_sort.c",
+    "CHOLMOD/Utility/cholmod_allocate_factor.c",
+    "CHOLMOD/Utility/cholmod_realloc_multiple.c",
+    "CHOLMOD/Utility/cholmod_l_reallocate_column.c",
+    "CHOLMOD/Utility/cholmod_l_start.c",
+    "CHOLMOD/Utility/cholmod_allocate_dense.c",
+    "CHOLMOD/Utility/cholmod_l_alloc_work.c",
+    "CHOLMOD/Utility/cholmod_nnz.c",
+    "CHOLMOD/Utility/cholmod_reallocate_triplet.c",
+    "CHOLMOD/Utility/cholmod_reallocate_column.c",
+    "CHOLMOD/Utility/cholmod_l_copy_dense.c",
+    "CHOLMOD/Utility/cholmod_add.c",
+    "CHOLMOD/Utility/cholmod_change_factor.c",
+    "CHOLMOD/Utility/cholmod_reallocate_factor.c",
+    "CHOLMOD/Utility/cholmod_copy.c",
+    "CHOLMOD/Utility/cholmod_allocate_work.c",
+    "CHOLMOD/Utility/cholmod_l_free_work.c",
+    "CHOLMOD/Utility/cholmod_l_copy_dense2.c",
+    "CHOLMOD/Utility/cholmod_l_reallocate_factor.c",
+    "CHOLMOD/Utility/cholmod_pack_factor.c",
+    "CHOLMOD/Utility/cholmod_l_ones.c",
+    "CHOLMOD/Utility/cholmod_l_dense_nnz.c",
+    "CHOLMOD/Utility/cholmod_l_calloc.c",
+    "CHOLMOD/Utility/cholmod_mult_uint64_t.c",
+    "CHOLMOD/Utility/cholmod_alloc_factor.c",
+    "CHOLMOD/Utility/cholmod_l_free_triplet.c",
+    "CHOLMOD/Utility/cholmod_transpose.c",
+    "CHOLMOD/Utility/cholmod_copy_dense.c",
+    "CHOLMOD/Utility/cholmod_l_allocate_dense.c",
+    "CHOLMOD/Utility/cholmod_l_allocate_triplet.c",
+    "CHOLMOD/Utility/cholmod_l_eye.c",
+    "CHOLMOD/Utility/cholmod_copy_dense2.c",
+    "CHOLMOD/Utility/cholmod_l_change_factor.c",
+    "CHOLMOD/Utility/cholmod_l_pack_factor.c",
+    "CHOLMOD/Utility/cholmod_alloc_work.c",
+    "CHOLMOD/Utility/cholmod_l_finish.c",
+    "CHOLMOD/Utility/cholmod_allocate_sparse.c",
+    "CHOLMOD/Utility/cholmod_l_error.c",
+    "CHOLMOD/Utility/cholmod_l_realloc_multiple.c",
+    "CHOLMOD/Utility/cholmod_l_allocate_work.c",
+    "CHOLMOD/Utility/cholmod_l_band_nnz.c",
+    "CHOLMOD/Utility/cholmod_speye.c",
+    "CHOLMOD/Utility/cholmod_mult_size_t.c",
+    "CHOLMOD/Utility/cholmod_l_zeros.c",
+    "CHOLMOD/Utility/cholmod_l_free.c",
+    "CHOLMOD/Utility/cholmod_cumsum.c",
+    "CHOLMOD/Utility/cholmod_l_score_comp.c",
+    "CHOLMOD/Utility/cholmod_l_reallocate_sparse.c",
+    "CHOLMOD/Utility/cholmod_l_malloc.c",
+    "CHOLMOD/Utility/cholmod_l_band.c",
+    "CHOLMOD/Utility/cholmod_reallocate_sparse.c",
+    "CHOLMOD/Utility/cholmod_sparse_to_dense.c",
+    "CHOLMOD/Utility/cholmod_maxrank.c",
+    "CHOLMOD/Utility/cholmod_dense_nnz.c",
+    "CHOLMOD/Utility/cholmod_transpose_unsym.c",
+    "CHOLMOD/Utility/cholmod_realloc.c",
+    "CHOLMOD/Utility/cholmod_free_work.c",
+    "CHOLMOD/Utility/cholmod_l_add.c",
+    "CHOLMOD/Utility/cholmod_copy_factor.c",
+    "CHOLMOD/Utility/cholmod_sparse_to_triplet.c",
+    "CHOLMOD/Utility/cholmod_l_factor_to_sparse.c",
+    "CHOLMOD/Utility/cholmod_band_nnz.c",
+    "CHOLMOD/Utility/cholmod_l_divcomplex.c",
+    "CHOLMOD/Utility/cholmod_l_sparse_to_triplet.c",
+    "CHOLMOD/Utility/cholmod_zeros.c",
+    "CHOLMOD/Utility/cholmod_l_triplet_to_sparse.c",
+    "CHOLMOD/Utility/cholmod_l_version.c",
+    "CHOLMOD/Utility/cholmod_transpose_sym.c",
+    "CHOLMOD/Utility/cholmod_l_speye.c",
+    "CHOLMOD/Utility/cholmod_ones.c",
+    "CHOLMOD/Utility/cholmod_ptranspose.c",
+    "CHOLMOD/Utility/cholmod_l_allocate_factor.c",
+    "CHOLMOD/Utility/cholmod_free_sparse.c",
+    "CHOLMOD/Utility/cholmod_triplet_to_sparse.c",
+    "CHOLMOD/Utility/cholmod_l_nnz.c",
+    "CHOLMOD/Utility/cholmod_l_copy.c",
+    "CHOLMOD/Utility/cholmod_dense_to_sparse.c",
+    "CHOLMOD/Utility/cholmod_version.c",
+    "CHOLMOD/Utility/cholmod_clear_flag.c",
+    "CHOLMOD/Utility/cholmod_l_copy_sparse.c",
+    "CHOLMOD/Utility/cholmod_l_set_empty.c",
+    "CHOLMOD/Utility/cholmod_l_add_size_t.c",
+    "CHOLMOD/Utility/cholmod_error.c",
+    "CHOLMOD/Utility/cholmod_l_ensure_dense.c",
+    "CHOLMOD/Utility/cholmod_l_sort.c",
+    "CHOLMOD/Utility/cholmod_l_realloc.c",
+    "CHOLMOD/Utility/cholmod_copy_triplet.c",
+    "CHOLMOD/Utility/cholmod_l_maxrank.c",
+    "CHOLMOD/Utility/cholmod_aat.c",
+    "CHOLMOD/Utility/cholmod_l_dbound.c",
+    "CHOLMOD/Utility/cholmod_free_dense.c",
+    "CHOLMOD/Utility/cholmod_l_free_factor.c",
+    "CHOLMOD/Utility/cholmod_sbound.c",
+    "CHOLMOD/Utility/cholmod_memdebug.c",
+    "CHOLMOD/Utility/cholmod_l_cumsum.c",
+    "CHOLMOD/Utility/cholmod_l_free_dense.c",
+    "CHOLMOD/Utility/cholmod_l_spzeros.c",
+    "CHOLMOD/Utility/cholmod_free.c",
+    "CHOLMOD/Utility/cholmod_copy_sparse.c",
+    "CHOLMOD/Utility/cholmod_factor_to_sparse.c",
+    "CHOLMOD/Utility/cholmod_add_size_t.c",
+    "CHOLMOD/Utility/cholmod_free_factor.c",
+    "CHOLMOD/Utility/cholmod_start.c",
+    "CHOLMOD/Utility/cholmod_malloc.c",
+    "CHOLMOD/Utility/cholmod_l_allocate_sparse.c",
+    "CHOLMOD/Utility/cholmod_l_clear_flag.c",
+    "CHOLMOD/Utility/cholmod_band.c",
+    "CHOLMOD/Utility/cholmod_free_triplet.c",
+    "CHOLMOD/Utility/cholmod_l_alloc_factor.c",
+    "CHOLMOD/Utility/cholmod_eye.c",
+    "CHOLMOD/Utility/cholmod_l_defaults.c",
+    "CHOLMOD/Utility/cholmod_calloc.c",
+    "CHOLMOD/Utility/cholmod_l_ptranspose.c",
+    "CHOLMOD/Utility/cholmod_l_copy_factor.c",
+    "CHOLMOD/Utility/cholmod_l_reallocate_triplet.c",
+    "CHOLMOD/Utility/cholmod_l_free_sparse.c",
+    "CHOLMOD/Utility/cholmod_divcomplex.c",
+    "CHOLMOD/Utility/cholmod_spzeros.c",
+    "CHOLMOD/Utility/cholmod_l_transpose_sym.c",
+    "CHOLMOD/Utility/cholmod_l_transpose.c",
+    "CHOLMOD/Utility/cholmod_hypot.c",
+    "CHOLMOD/Utility/cholmod_l_sparse_to_dense.c",
+    "CHOLMOD/Utility/cholmod_finish.c",
+    "CHOLMOD/Utility/cholmod_l_xtype.c",
+};
+
+// CHOLMOD flags: build the minimal configuration used by demo_cholmod.c.
+const cholmod_flags = [_][]const u8{
+    "-DNCHECK",
+    "-DNPARTITION",
+    "-DNCAMD",
+    "-DNMATRIXOPS",
+    "-DNMODIFY",
+    "-DNSUPERNODAL",
+    "-DNPRINT",
+};
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const metis = b.dependency("metis", .{
-        .target = target,
-        .optimize = optimize,
+    // METIS (+ GKlib), built from vendored source with libc so it compiles on
+    // any platform (macOS was previously relying on implicit native libc).
+    const gklib_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    gklib_mod.addIncludePath(b.path(metis_dir ++ "/GKlib"));
+    gklib_mod.addCSourceFiles(.{
+        .root = b.path(metis_dir ++ "/GKlib"),
+        .files = &gklib_files,
+        // _GNU_SOURCE so glibc declares strptime et al. (macOS declares them
+        // unconditionally; glibc gates them behind this feature-test macro).
+        .flags = &.{"-D_GNU_SOURCE"},
     });
-    const libmetis = metis.artifact("metis");
+    const gklib = b.addLibrary(.{ .name = "gk", .linkage = .static, .root_module = gklib_mod });
 
-    const lib = b.addStaticLibrary(.{
-        .name = "lib",
-        .target = target,
-        .optimize = optimize,
+    const metis_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    metis_mod.addIncludePath(b.path(metis_dir ++ "/include"));
+    metis_mod.addIncludePath(b.path(metis_dir ++ "/libmetis"));
+    metis_mod.addIncludePath(b.path(metis_dir ++ "/GKlib"));
+    metis_mod.addCSourceFiles(.{
+        .root = b.path(metis_dir ++ "/libmetis"),
+        .files = &metis_files,
+        .flags = &.{"-D_GNU_SOURCE"},
     });
-    lib.addIncludePath(b.path("src"));
-    lib.addIncludePath(metis.path("include"));
-    lib.addCSourceFiles(.{
+    metis_mod.linkLibrary(gklib);
+    const libmetis = b.addLibrary(.{ .name = "metis", .linkage = .static, .root_module = metis_mod });
+
+    // Core solver library (C).
+    const lib_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    lib_mod.addIncludePath(b.path("src"));
+    lib_mod.addIncludePath(b.path(metis_dir ++ "/include"));
+    lib_mod.addCSourceFiles(.{
         .files = &.{
             "src/mat.c",
             "src/arena.c",
             "src/linearizer.c",
             "src/solver.c",
         },
-        .flags = &.{}
+        .flags = &.{},
     });
+    const lib = b.addLibrary(.{ .name = "lib", .linkage = .static, .root_module = lib_mod });
 
-    const eigen = b.dependency("eigen", .{});
-
-    const balTest = b.addExecutable(.{
-        .name = "balTest",
-        .target = target,
-        .optimize = optimize,
-    });
-    balTest.addIncludePath(b.path("src"));
-    balTest.addIncludePath(b.path("test/bal"));
-    balTest.addIncludePath(eigen.path(""));
-    balTest.addCSourceFiles(.{
+    // balTest (C++ reference implementation, uses Eigen).
+    const balTest_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libcpp = true });
+    balTest_mod.addIncludePath(b.path("src"));
+    balTest_mod.addIncludePath(b.path("test/bal"));
+    balTest_mod.addIncludePath(b.path(eigen_dir));
+    balTest_mod.addCSourceFiles(.{
         .files = &.{
             "test/bal/main.cc",
             "test/bal/sym/rot3.cc",
@@ -83,111 +317,110 @@ pub fn build(b: *std.Build) void {
             "test/bal/sym/ops/pose3/group_ops.cc",
             "test/bal/sym/ops/pose3/lie_group_ops.cc",
         },
-        .flags = &.{}
+        .flags = &.{},
     });
-    balTest.linkLibrary(lib);
-    balTest.linkLibrary(libmetis);
-    balTest.linkLibCpp();
+    balTest_mod.linkLibrary(lib);
+    balTest_mod.linkLibrary(libmetis);
+    const balTest = b.addExecutable(.{ .name = "balTest", .root_module = balTest_mod });
 
-    const balDemo = b.addExecutable(.{
-        .name = "balDemo",
-        .target = target,
-        .optimize = optimize,
-    });
-    balDemo.addIncludePath(b.path("src"));
-    balDemo.addIncludePath(b.path("test/bal"));
+    // balDemo (the main C demo we optimize / profile).
+    const balDemo_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    balDemo_mod.addIncludePath(b.path("src"));
+    balDemo_mod.addIncludePath(b.path("test/bal"));
     // -ffast-math doesn't seem to gain much
     // it does turn pow(x, 2) into x * x though
-    balDemo.addCSourceFiles(.{
+    balDemo_mod.addCSourceFiles(.{
         .files = &.{
             "test/bal/demo.c",
         },
-        .flags = &.{}
+        .flags = &.{},
     });
-    balDemo.linkLibrary(lib);
-    balDemo.linkLibrary(libmetis);
+    balDemo_mod.linkLibrary(lib);
+    balDemo_mod.linkLibrary(libmetis);
+    const balDemo = b.addExecutable(.{ .name = "balDemo", .root_module = balDemo_mod });
 
-    const suitesparse = b.dependency("suitesparse", .{
-        .target = target,
-        .optimize = optimize,
+    // CHOLMOD, built from vendored SuiteSparse source.
+    const cholmod_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    cholmod_mod.addIncludePath(b.path(suitesparse_dir ++ "/SuiteSparse_config"));
+    cholmod_mod.addIncludePath(b.path(suitesparse_dir ++ "/CHOLMOD/Include"));
+    cholmod_mod.addCSourceFiles(.{
+        .root = b.path(suitesparse_dir),
+        .files = &cholmod_files,
+        .flags = &cholmod_flags,
     });
-    const cholmod = suitesparse.artifact("cholmod");
+    const cholmod = b.addLibrary(.{ .name = "cholmod", .linkage = .static, .root_module = cholmod_mod });
 
-    const balDemoCholmod = b.addExecutable(.{
-        .name = "balDemoCholmod",
-        .target = target,
-        .optimize = optimize,
-    });
-    balDemoCholmod.addIncludePath(b.path("src"));
-    balDemoCholmod.addIncludePath(b.path("test/bal"));
-    balDemoCholmod.addIncludePath(suitesparse.path("SuiteSparse_config"));
-    balDemoCholmod.addIncludePath(suitesparse.path("CHOLMOD/Include"));
-    balDemoCholmod.addCSourceFiles(.{
+    // balDemoCholmod (alternative solver demo using CHOLMOD).
+    const balDemoCholmod_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    balDemoCholmod_mod.addIncludePath(b.path("src"));
+    balDemoCholmod_mod.addIncludePath(b.path("test/bal"));
+    balDemoCholmod_mod.addIncludePath(b.path(suitesparse_dir ++ "/SuiteSparse_config"));
+    balDemoCholmod_mod.addIncludePath(b.path(suitesparse_dir ++ "/CHOLMOD/Include"));
+    balDemoCholmod_mod.addCSourceFiles(.{
         .files = &.{
             "test/bal/demo_cholmod.c",
             "test/bal/cholmod_shim.c",
         },
-        .flags = &.{
-            "-DNCHECK",
-            "-DNPARTITION",
-            "-DNCAMD",
-            "-DNMATRIXOPS",
-            "-DNMODIFY",
-            "-DNSUPERNODAL",
-            "-DNPRINT",
-        },
+        .flags = &cholmod_flags,
     });
-    balDemoCholmod.linkLibrary(lib);
-    balDemoCholmod.linkLibrary(libmetis);
-    balDemoCholmod.linkLibrary(cholmod);
+    balDemoCholmod_mod.linkLibrary(lib);
+    balDemoCholmod_mod.linkLibrary(libmetis);
+    balDemoCholmod_mod.linkLibrary(cholmod);
+    const balDemoCholmod = b.addExecutable(.{ .name = "balDemoCholmod", .root_module = balDemoCholmod_mod });
 
-    const unit = b.addExecutable(.{
-        .name = "unit",
-        .target = target,
-        .optimize = optimize,
-    });
-    unit.addIncludePath(b.path("src"));
-    unit.addCSourceFiles(.{
+    // unit tests (C).
+    const unit_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    unit_mod.addIncludePath(b.path("src"));
+    unit_mod.addCSourceFiles(.{
         .files = &.{
             "test/unit.c",
         },
-        .flags = &.{}
+        .flags = &.{},
     });
-    unit.linkLibrary(lib);
-    unit.linkLibrary(libmetis);
+    unit_mod.linkLibrary(lib);
+    unit_mod.linkLibrary(libmetis);
+    const unit = b.addExecutable(.{ .name = "unit", .root_module = unit_mod });
 
     b.installArtifact(balTest);
     b.installArtifact(balDemo);
     b.installArtifact(balDemoCholmod);
     b.installArtifact(unit);
 
-    const python_exe = b.option([]const u8, "python-exe", "Python executable to use") orelse "python";
+    // Named step to build only balDemo (e.g. `zig build balDemo`), avoiding the
+    // CHOLMOD/SuiteSparse and Python targets.
+    const balDemoStep = b.step("balDemo", "Build only the balDemo executable");
+    balDemoStep.dependOn(&b.addInstallArtifact(balDemo, .{}).step);
 
-    const pythonInc = getPythonIncludePath(python_exe, b.allocator) catch @panic("Missing python");
-    const pythonLib = getPythonLibraryPath(python_exe, b.allocator) catch @panic("Missing python");
-    const pythonVer = getPythonLDVersion(python_exe, b.allocator) catch @panic("Missing python");
-    const pythonLibName = std.fmt.allocPrint(b.allocator, "python{s}", .{pythonVer}) catch @panic("Missing python");
+    // The Python module needs Python + numpy headers at configure time, which
+    // aren't available everywhere (e.g. a bare Linux container). Pass -Dnopython
+    // to skip it and build only the C/C++ targets.
+    const nopython = b.option(bool, "nopython", "Skip the Python module (no Python/numpy needed)") orelse false;
+    if (!nopython) {
+        const python_exe = b.option([]const u8, "python-exe", "Python executable to use") orelse "python";
 
-    const balModule = b.addSharedLibrary(.{
-        .name = "balmodule",
-        .target = target,
-        .optimize = optimize,
-    });
-    balModule.addIncludePath(.{ .cwd_relative = pythonInc });
-    balModule.addIncludePath(.{
-        .cwd_relative = std.fmt.allocPrint(b.allocator, "venv/lib/{s}/site-packages/numpy/core/include/numpy", .{pythonLibName}) catch @panic("Missing python"),
-    });
-    balModule.addIncludePath(b.path("test/bal"));
-    balModule.addIncludePath(b.path("src"));
-    balModule.addCSourceFiles(.{
-        .files = &.{
-            "test/bal/py/balmodule.c",
-        },
-        .flags = &.{}
-    });
-    balModule.addLibraryPath(.{ .cwd_relative = pythonLib });
-    balModule.linkSystemLibrary(pythonLibName);
-    // Rename the shared library so Python can find it.
-    const balInstallStep = b.addInstallArtifact(balModule, .{ .dest_sub_path = "bal.so" });
-    b.getInstallStep().dependOn(&balInstallStep.step);
+        const pythonInc = pythonQuery(b, python_exe, "import sysconfig; print(sysconfig.get_path('include'), end='')");
+        const pythonLib = pythonQuery(b, python_exe, "import sysconfig; print(sysconfig.get_config_var('LIBDIR'), end='')");
+        const pythonVer = pythonQuery(b, python_exe, "import sysconfig; print(sysconfig.get_config_var('LDVERSION'), end='')");
+        const pythonLibName = std.fmt.allocPrint(b.allocator, "python{s}", .{pythonVer}) catch @panic("Missing python");
+
+        const balModule_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+        balModule_mod.addIncludePath(.{ .cwd_relative = pythonInc });
+        balModule_mod.addIncludePath(.{
+            .cwd_relative = std.fmt.allocPrint(b.allocator, "venv/lib/{s}/site-packages/numpy/core/include/numpy", .{pythonLibName}) catch @panic("Missing python"),
+        });
+        balModule_mod.addIncludePath(b.path("test/bal"));
+        balModule_mod.addIncludePath(b.path("src"));
+        balModule_mod.addCSourceFiles(.{
+            .files = &.{
+                "test/bal/py/balmodule.c",
+            },
+            .flags = &.{},
+        });
+        balModule_mod.addLibraryPath(.{ .cwd_relative = pythonLib });
+        balModule_mod.linkSystemLibrary(pythonLibName, .{});
+        const balModule = b.addLibrary(.{ .name = "balmodule", .linkage = .dynamic, .root_module = balModule_mod });
+        // Rename the shared library so Python can find it.
+        const balInstallStep = b.addInstallArtifact(balModule, .{ .dest_sub_path = "bal.so" });
+        b.getInstallStep().dependOn(&balInstallStep.step);
+    }
 }

@@ -1,25 +1,15 @@
 .{
-    .name = "handmade-symforce",
+    .name = .handmade_symforce,
     .version = "0.0.1",
-    .dependencies = .{
-        .metis = .{
-            .url = "https://github.com/rbrott/metis/archive/a6afb8c40eca52f2a11d2ce0879f45a20da827bf.tar.gz",
-            .hash = "1220b0efb5210fb4d492762335c939e92f3803c6ea7d3f363a8cbf1b55208c701036",
-        },
-        // Eigen used for tests only
-        .eigen = .{
-            .url = "https://github.com/rbrott/eigen/archive/refs/tags/v3.4.0-headers.tar.gz",
-            .hash = "12202a3f780366b9b8a6021eb05f9bb0ed7631573df6f312f4aa3b99b22849725d83",
-        },
-        .suitesparse = .{
-            .url = "https://github.com/rbrott/suite-sparse/archive/1a6d1a07aab71856ad73964316f6f5e5ff0680d9.tar.gz",
-            .hash = "122030d92544e0f9d7113b5e60dc9ff4cf273f51464e33e42a5eaa018dc145be2841",
-        },
-    },
+    .fingerprint = 0xcf00fdcbae0658e4,
+    .dependencies = .{},
     .paths = .{
         "src",
         "test",
         "build.zig",
         "build.zig.zon",
+        "metis-5.1.0",
+        "eigen-5.0.1",
+        "suite-sparse-7.6.0",
     },
 }

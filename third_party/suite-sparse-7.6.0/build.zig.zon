@@ -1,0 +1,11 @@
+.{
+    .name = "suite-sparse",
+    .version = "5.7.0",
+    .dependencies = .{},
+    .paths = .{
+        "SuiteSparse_config",
+        "CHOLMOD",
+        "build.zig",
+        "build.zig.zon",
+    },
+}
