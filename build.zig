@@ -1,4 +1,5 @@
 const std = @import("std");
+const zcc = @import("compile_commands");
 
 const eigen_dir = "third_party/eigen-5.0.1";
 const metis_dir = "third_party/metis-5.1.0";
@@ -390,6 +391,19 @@ pub fn build(b: *std.Build) void {
     // CHOLMOD/SuiteSparse and Python targets.
     const balDemoStep = b.step("balDemo", "Build only the balDemo executable");
     balDemoStep.dependOn(&b.addInstallArtifact(balDemo, .{}).step);
+
+    // Generate compile_commands.json for clangd with `zig build cdb`.
+    const cdb_targets = b.allocator.dupe(*std.Build.Step.Compile, &.{
+        gklib,
+        libmetis,
+        lib,
+        balTest,
+        balDemo,
+        cholmod,
+        balDemoCholmod,
+        unit,
+    }) catch @panic("OOM");
+    _ = zcc.createStep(b, "cdb", cdb_targets);
 
     // The Python module needs Python + numpy headers at configure time, which
     // aren't available everywhere (e.g. a bare Linux container). Pass -Dnopython
