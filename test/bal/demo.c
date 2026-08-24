@@ -13,6 +13,7 @@
 #include <math.h>
 #include <float.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "gen/snavely_reprojection_factor.h"
 #include "gen/pose3_retract.h"
@@ -129,7 +130,12 @@ f64 bal_linearize(
 }
 
 int main(int argc, char** argv) {
-  SYM_ASSERT(argc == 2);
+  SYM_ASSERT(argc == 2 || argc == 3);
+
+  bool populate_lt = argc == 3;
+  if (populate_lt) {
+    SYM_ASSERT(strcmp(argv[2], "--populate-lt") == 0);
+  }
 
   f64 epsilon = 10.0 * DBL_EPSILON;
 
@@ -297,7 +303,7 @@ int main(int argc, char** argv) {
   sym_chol_solver solver;
   {
     SYM_TIME_SCOPE(timing, "setup/analyze");
-    solver = sym_new_chol_solver(Hlt, &fac, false, alloc);
+    solver = sym_new_chol_solver(Hlt, &fac, populate_lt, alloc);
   }
 
   sym_vec x = sym_vec_new(lin.Hl.nrows, alloc);

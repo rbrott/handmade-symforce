@@ -6,6 +6,7 @@
 #include <math.h>
 #include <float.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include <cholmod.h>
 
@@ -120,7 +121,12 @@ f64 bal_linearize(
 }
 
 int main(int argc, char** argv) {
-  SYM_ASSERT(argc == 2);
+  SYM_ASSERT(argc == 2 || argc == 3);
+
+  bool use_supernodal = argc == 3;
+  if (use_supernodal) {
+    SYM_ASSERT(strcmp(argv[2], "--supernodal") == 0);
+  }
 
   f64 epsilon = 10.0 * DBL_EPSILON;
 
@@ -285,8 +291,8 @@ int main(int argc, char** argv) {
   cholmod_start(&chol_common);
   chol_common.nmethods = 1;
   chol_common.method[0].ordering = CHOLMOD_NATURAL;
-  chol_common.postorder = false;
-  chol_common.supernodal = CHOLMOD_SIMPLICIAL;
+  chol_common.postorder = true;
+  chol_common.supernodal = use_supernodal ? CHOLMOD_SUPERNODAL : CHOLMOD_SIMPLICIAL;
 
   chol_common.error_handler = print_error;
 
