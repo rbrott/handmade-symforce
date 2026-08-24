@@ -297,7 +297,7 @@ int main(int argc, char** argv) {
   sym_chol_solver solver;
   {
     SYM_TIME_SCOPE(timing, "setup/analyze");
-    solver = sym_new_chol_solver(Hlt, &fac, alloc);
+    solver = sym_new_chol_solver(Hlt, &fac, false, alloc);
   }
 
   sym_vec x = sym_vec_new(lin.Hl.nrows, alloc);

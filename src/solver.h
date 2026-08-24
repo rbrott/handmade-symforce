@@ -8,6 +8,8 @@
 #include "types.h"
 #include "mat.h"
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -18,7 +20,7 @@ typedef struct {
     i32* nnz_by_col; // size dim
     i32* L_k_pattern; // size dim
     f64* D_agg; // size dim
-    i32* Lt_perm; // size L_nnz
+    i32* Lt_perm; // size L_nnz when Lt is populated
     i32 dim;
     i32 L_nnz;
 } sym_chol_solver;
@@ -29,7 +31,10 @@ typedef struct {
     sym_csc_mat Lt;
 } sym_chol_factorization;
 
-sym_chol_solver sym_new_chol_solver(sym_csc_mat m, sym_chol_factorization* fac, sym_allocator* alloc);
+// Keep populate_Lt false for one solve per factorization. Enable it to amortize
+// the extra setup and memory across multiple solves.
+sym_chol_solver sym_new_chol_solver(
+    sym_csc_mat m, sym_chol_factorization* fac, bool populate_Lt, sym_allocator* alloc);
 
 void sym_chol_solver_factor(sym_chol_solver solver, sym_csc_mat m, sym_chol_factorization fac);
 

@@ -76,6 +76,8 @@ int main() {
             &lin,
             alloc
         );
+        lin.Hl.data = alloc->malloc(lin.Hl.nnz * sizeof(f64), alloc->ctx);
+        lin.rhs.data = alloc->malloc(lin.rhs.n * sizeof(f64), alloc->ctx);
 
         // check Hl_block_nz_iperm
         {
@@ -143,6 +145,8 @@ int main() {
             &lin,
             alloc
         );
+        lin.Hl.data = alloc->malloc(lin.Hl.nnz * sizeof(f64), alloc->ctx);
+        lin.rhs.data = alloc->malloc(lin.rhs.n * sizeof(f64), alloc->ctx);
 
         // check Hl_block_nz_iperm
         {
@@ -192,9 +196,6 @@ int main() {
         i32 L_row_indices[1] = {1};
         f64 L_data[1] = {0.5};
         f64 D_data[2] = {4.0, 1.0};
-        i32 Lt_col_starts[3] = {0, 0, 1};
-        i32 Lt_row_indices[1] = {0};
-        f64 Lt_data[1] = {0.5};
         sym_chol_factorization fac = {
             .L = {
                 .nrows = 2,
@@ -208,14 +209,6 @@ int main() {
                 .n = 2,
                 .data = D_data,
             },
-            .Lt = {
-                .nrows = 2,
-                .ncols = 2,
-                .nnz = 1,
-                .col_starts = Lt_col_starts,
-                .row_indices = Lt_row_indices,
-                .data = Lt_data,
-            }
         };
 
         f64 x_data[2] = {4.0, 2.0};
@@ -244,18 +237,31 @@ int main() {
             .row_indices = A_row_indices,
             .data = A_data,
         };
-        sym_chol_solver solver = sym_new_chol_solver(A, &fac, alloc);
+        sym_chol_solver solver = sym_new_chol_solver(A, &fac, false, alloc);
         sym_chol_solver_factor(solver, A, fac);
+        assert(fac.Lt.col_starts == NULL);
         assert(fac.L.nnz == 1);
         assert(fac.L.col_starts[0] == 0);
         assert(fac.L.col_starts[1] == 1);
         assert(fac.L.row_indices[0] == 1);
         assert(fac.L.data[0] == 0.5);
 
+        sym_chol_solver_free(solver, alloc);
+        sym_chol_factorization_free(fac, alloc);
+
+        solver = sym_new_chol_solver(A, &fac, true, alloc);
+        sym_chol_solver_factor(solver, A, fac);
         assert(fac.Lt.col_starts[0] == 0);
         assert(fac.Lt.col_starts[1] == 0);
         assert(fac.Lt.col_starts[2] == 1);
         assert(fac.Lt.row_indices[0] == 0);
+        assert(fac.Lt.data[0] == 0.5);
+
+        x.data[0] = 2.0;
+        x.data[1] = 0.0;
+        sym_chol_solver_solve_in_place(fac, x);
+        assert(x.data[0] == 1.0);
+        assert(x.data[1] == -1.0);
 
         sym_chol_solver_free(solver, alloc);
         sym_chol_factorization_free(fac, alloc);

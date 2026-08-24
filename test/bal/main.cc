@@ -359,7 +359,7 @@ void CheckProblem(sym::bal_test_data_t ref, const std::string& filename, std::ve
   // alloc->free(perm, lin.Hl.nnz * sizeof(i32), alloc->ctx);
 
   // sym_chol_factorization fac{};
-  // sym_chol_solver solver = sym_new_chol_solver(Hlt, &fac, alloc);
+  // sym_chol_solver solver = sym_new_chol_solver(Hlt, &fac, false, alloc);
   // sym_chol_solver_factor(solver, Hlt, fac);
 
   // sym_chol_solver_solve_in_place(fac, lin.rhs, alloc);

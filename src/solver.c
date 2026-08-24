@@ -9,9 +9,11 @@
 
 #include "sym_assert.h"
 
-sym_chol_solver sym_new_chol_solver(sym_csc_mat m, sym_chol_factorization* fac, sym_allocator* alloc) {
+sym_chol_solver sym_new_chol_solver(
+    sym_csc_mat m, sym_chol_factorization* fac, bool populate_Lt, sym_allocator* alloc
+) {
     SYM_ASSERT(m.nrows == m.ncols);
-    
+
     i32* visited = alloc->malloc(m.nrows * sizeof(i32), alloc->ctx);
     i32* parent = alloc->malloc(m.nrows * sizeof(i32), alloc->ctx);
     i32* nnz_by_col = alloc->malloc(m.nrows * sizeof(i32), alloc->ctx);
@@ -153,10 +155,12 @@ sym_chol_solver sym_new_chol_solver(sym_csc_mat m, sym_chol_factorization* fac, 
     };
     fac->D = D;
 
-    i32* Lt_perm = alloc->malloc(L_nnz * sizeof(i32), alloc->ctx);
-    // TODO: L has empty data, so we could skip permuting it
-    sym_csc_mat Lt = sym_transpose_csc(L, Lt_perm, alloc);
-    fac->Lt = Lt;
+    i32* Lt_perm = NULL;
+    fac->Lt = (sym_csc_mat) {0};
+    if (populate_Lt) {
+        Lt_perm = alloc->malloc(L_nnz * sizeof(i32), alloc->ctx);
+        fac->Lt = sym_transpose_csc(L, Lt_perm, alloc);
+    }
 
     // Allocate other memory used for subsequent factorization and solve calls
     f64* D_agg = alloc->malloc(m.nrows * sizeof(f64), alloc->ctx);
@@ -268,9 +272,11 @@ void sym_chol_solver_factor(sym_chol_solver solver, sym_csc_mat m, sym_chol_fact
         fac.D.data[k] = D_k;
     }
 
-    // Prepare L^t
-    for (i32 i = 0; i < solver.L_nnz; ++i) {
-        fac.Lt.data[i] = fac.L.data[solver.Lt_perm[i]];
+    if (fac.Lt.col_starts != NULL) {
+        // Populate the row-oriented copy used by repeated solves.
+        for (i32 i = 0; i < solver.L_nnz; ++i) {
+            fac.Lt.data[i] = fac.L.data[solver.Lt_perm[i]];
+        }
     }
 }
 
@@ -278,26 +284,34 @@ void sym_chol_solver_solve_in_place(sym_chol_factorization fac, sym_vec x) {
     SYM_ASSERT(fac.L.nrows == fac.L.ncols);
     SYM_ASSERT(x.n == fac.L.nrows);
 
-    // L \ x in place
+    // Finish each L result, store its D division, then scatter the saved value.
     for (i32 k = 0; k < fac.L.nrows; ++k) {
         f64 y = x.data[k];
+        x.data[k] = y / fac.D.data[k];
+
         for (i32 j = fac.L.col_starts[k]; j < fac.L.col_starts[k + 1]; ++j) {
             i32 i = fac.L.row_indices[j];
             x.data[i] -= fac.L.data[j] * y;
         }
     }
 
-    // D \ x in place
-    for (i32 i = 0; i < fac.D.n; ++i) {
-        x.data[i] /= fac.D.data[i];
-    }
-
-    // L^T \ x in place
-    for (i32 k = fac.Lt.nrows - 1; k >= 0; --k) {
-        f64 y = x.data[k];
-        for (i32 j = fac.Lt.col_starts[k + 1] - 1; j >= fac.Lt.col_starts[k]; --j) {
-            i32 i = fac.Lt.row_indices[j];
-            x.data[i] -= fac.Lt.data[j] * y;
+    if (fac.Lt.col_starts == NULL) {
+        // Gather the L^T solve from each column of L.
+        for (i32 k = fac.L.nrows - 1; k >= 0; --k) {
+            f64 y = x.data[k];
+            for (i32 j = fac.L.col_starts[k]; j < fac.L.col_starts[k + 1]; ++j) {
+                i32 i = fac.L.row_indices[j];
+                y -= fac.L.data[j] * x.data[i];
+            }
+            x.data[k] = y;
+        }
+    } else {
+        for (i32 k = fac.Lt.nrows - 1; k >= 0; --k) {
+            f64 y = x.data[k];
+            for (i32 j = fac.Lt.col_starts[k + 1] - 1; j >= fac.Lt.col_starts[k]; --j) {
+                i32 i = fac.Lt.row_indices[j];
+                x.data[i] -= fac.Lt.data[j] * y;
+            }
         }
     }
 }
@@ -308,11 +322,15 @@ void sym_chol_solver_free(sym_chol_solver solver, sym_allocator* alloc) {
     alloc->free(solver.nnz_by_col, solver.dim * sizeof(i32), alloc->ctx);
     alloc->free(solver.L_k_pattern, solver.dim * sizeof(i32), alloc->ctx);
     alloc->free(solver.D_agg, solver.dim * sizeof(f64), alloc->ctx);
-    alloc->free(solver.Lt_perm, solver.L_nnz * sizeof(i32), alloc->ctx);
+    if (solver.Lt_perm != NULL) {
+        alloc->free(solver.Lt_perm, solver.L_nnz * sizeof(i32), alloc->ctx);
+    }
 }
 
 void sym_chol_factorization_free(sym_chol_factorization fac, sym_allocator* alloc) {
     sym_csc_mat_free(fac.L, alloc);
     sym_vec_free(fac.D, alloc);
-    sym_csc_mat_free(fac.Lt, alloc);
+    if (fac.Lt.col_starts != NULL) {
+        sym_csc_mat_free(fac.Lt, alloc);
+    }
 }
