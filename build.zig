@@ -260,6 +260,7 @@ const cholmod_flags = [_][]const u8{
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const enable_timing = b.option(bool, "timing", "Enable scope timing") orelse false;
 
     // METIS (+ GKlib), built from vendored source with libc so it compiles on
     // any platform (macOS was previously relying on implicit native libc).
@@ -296,6 +297,7 @@ pub fn build(b: *std.Build) void {
             "src/arena.c",
             "src/linearizer.c",
             "src/solver.c",
+            "src/timing.c",
         },
         .flags = &.{},
     });
@@ -338,6 +340,9 @@ pub fn build(b: *std.Build) void {
     });
     balDemo_mod.linkLibrary(lib);
     balDemo_mod.linkLibrary(libmetis);
+    if (enable_timing) {
+        balDemo_mod.addCMacro("SYM_ENABLE_TIMING", "1");
+    }
     const balDemo = b.addExecutable(.{ .name = "balDemo", .root_module = balDemo_mod });
 
     // CHOLMOD, built from vendored SuiteSparse source.
@@ -367,6 +372,9 @@ pub fn build(b: *std.Build) void {
     balDemoCholmod_mod.linkLibrary(lib);
     balDemoCholmod_mod.linkLibrary(libmetis);
     balDemoCholmod_mod.linkLibrary(cholmod);
+    if (enable_timing) {
+        balDemoCholmod_mod.addCMacro("SYM_ENABLE_TIMING", "1");
+    }
     const balDemoCholmod = b.addExecutable(.{ .name = "balDemoCholmod", .root_module = balDemoCholmod_mod });
 
     // unit tests (C).
@@ -382,10 +390,24 @@ pub fn build(b: *std.Build) void {
     unit_mod.linkLibrary(libmetis);
     const unit = b.addExecutable(.{ .name = "unit", .root_module = unit_mod });
 
+    // Deterministic timing aggregation and scope tests.
+    const timingTest_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    timingTest_mod.addIncludePath(b.path("src"));
+    timingTest_mod.addCMacro("SYM_ENABLE_TIMING", "1");
+    timingTest_mod.addCSourceFiles(.{
+        .files = &.{
+            "test/timing.c",
+        },
+        .flags = &.{},
+    });
+    timingTest_mod.linkLibrary(lib);
+    const timingTest = b.addExecutable(.{ .name = "timingTest", .root_module = timingTest_mod });
+
     b.installArtifact(balTest);
     b.installArtifact(balDemo);
     b.installArtifact(balDemoCholmod);
     b.installArtifact(unit);
+    b.installArtifact(timingTest);
 
     // Named step to build only balDemo (e.g. `zig build balDemo`), avoiding the
     // CHOLMOD/SuiteSparse and Python targets.
@@ -402,6 +424,7 @@ pub fn build(b: *std.Build) void {
         cholmod,
         balDemoCholmod,
         unit,
+        timingTest,
     }) catch @panic("OOM");
     _ = zcc.createStep(b, "cdb", cdb_targets);
 

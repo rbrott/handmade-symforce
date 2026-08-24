@@ -17,6 +17,7 @@
 #include "alloc.h"
 #include "arena.h"
 #include "linearizer.h"
+#include "timing.h"
 
 typedef struct {
   i32* camera_indices;
@@ -32,7 +33,16 @@ void print_error(int status, const char *file, int line,
   printf("status: %d, file: %s, line: %d, message: %s\n", status, file, line, message);
 }
 
-f64 bal_linearize(bal_problem p, sym_linearizer lzr, sym_linearization lin, f64* values, f64 epsilon) {
+f64 bal_linearize(
+  bal_problem p,
+  sym_linearizer lzr,
+  sym_linearization lin,
+  f64* values,
+  f64 epsilon,
+  sym_timing* timing
+) {
+  SYM_TIME_SCOPE(timing, "iteration/linearize");
+
   // Run a single linearization round.
   sym_linearization_clear(lin);
 
@@ -129,6 +139,7 @@ int main(int argc, char** argv) {
       .ctx = &arena
   };
   sym_allocator* alloc = &alloc_struct;
+  sym_timing* timing = sym_timing_new(alloc);
 
   FILE* file = fopen(argv[1], "r");
 
@@ -246,7 +257,10 @@ int main(int argc, char** argv) {
   alloc->free(Hl_block_cols, nblocks * sizeof(i32), alloc->ctx);
 
   i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
-  sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
+  {
+    SYM_TIME_SCOPE(timing, "setup/ordering");
+    sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
+  }
 
   sym_linearization lin;
   sym_linearizer lzr = sym_linearizer_new(
@@ -256,6 +270,11 @@ int main(int argc, char** argv) {
     &lin,
     alloc
   );
+  lin.Hl.data = (f64*) alloc->malloc(lin.Hl.nnz * sizeof(f64), alloc->ctx);
+  lin.rhs.data = (f64*) alloc->malloc(lin.rhs.n * sizeof(f64), alloc->ctx);
+
+  f64* old_lin_rhs_data = (f64*) alloc->malloc(lin.rhs.n * sizeof(f64), alloc->ctx);
+  f64* old_lin_Hl_data = (f64*) alloc->malloc(lin.Hl.nnz * sizeof(f64), alloc->ctx);
 
   sym_csc_mat_free(Hl_block, alloc);
 
@@ -266,6 +285,8 @@ int main(int argc, char** argv) {
   cholmod_start(&chol_common);
   chol_common.nmethods = 1;
   chol_common.method[0].ordering = CHOLMOD_NATURAL;
+  chol_common.postorder = false;
+  chol_common.supernodal = CHOLMOD_SIMPLICIAL;
 
   chol_common.error_handler = print_error;
 
@@ -288,7 +309,11 @@ int main(int argc, char** argv) {
   };
 
   // H, H_fac symbolic for now -- does this allocate memory for the data members?
-  cholmod_factor* H_fac = cholmod_analyze(&H, &chol_common);
+  cholmod_factor* H_fac;
+  {
+    SYM_TIME_SCOPE(timing, "setup/analyze");
+    H_fac = cholmod_analyze(&H, &chol_common);
+  }
 
 // typedef struct cholmod_dense_struct
 // {
@@ -313,70 +338,104 @@ int main(int argc, char** argv) {
       .xtype = CHOLMOD_REAL,
       .dtype = CHOLMOD_DOUBLE
   };
+  cholmod_dense* x = NULL;
+  cholmod_dense* solve_y = NULL;
+  cholmod_dense* solve_e = NULL;
 
   // LM params
   f64 initial_lambda = 1.0;
   f64 lambda_up_factor = 4.0;
   f64 lambda_down_factor = 1 / 4.0;
   f64 lambda_lower_bound = 0.0;
-  f64 lambda_upper_bound = 1000000.0;
+  f64 lambda_upper_bound = 1e10;
   f64 early_exit_min_reduction = 1e-6;
 
-  f64 last_error = bal_linearize(p, lzr, lin, values, epsilon);
+  f64 last_error = bal_linearize(p, lzr, lin, values, epsilon, timing);
   f64 lambda = initial_lambda;
   i32 iteration = 0;
   while (1) {
-    // damp the last Hessian (just unit diagonal damping)
-    for (i32 i = 0; i < lin.Hl.nrows; ++i) {
-      i32 j = lin.Hl.col_starts[i];
-      SYM_ASSERT(lin.Hl.row_indices[j] == i);
-      lin.Hl.data[j] += lambda;
+    // Preserve the accepted linearization for rejected steps.
+    for (i32 i = 0; i < lin.rhs.n; ++i) {
+      old_lin_rhs_data[i] = lin.rhs.data[i];
+    }
+    for (i32 i = 0; i < lin.Hl.nnz; ++i) {
+      old_lin_Hl_data[i] = lin.Hl.data[i];
+    }
+
+    {
+      SYM_TIME_SCOPE(timing, "iteration/damp");
+
+      // Damp the last Hessian with a unit diagonal.
+      for (i32 i = 0; i < lin.Hl.nrows; ++i) {
+        i32 j = lin.Hl.col_starts[i];
+        SYM_ASSERT(lin.Hl.row_indices[j] == i);
+        lin.Hl.data[j] += lambda;
+      }
     }
 
     H.xtype = CHOLMOD_REAL;
     H.x = lin.Hl.data;
 
-    // TODO: use the fancier routines to avoid allocating (like solve2)
-
-    int success = cholmod_factorize(&H, H_fac, &chol_common);
-    SYM_ASSERT(success); // TODO: idk what the value of this is supposed to be
-
-    for (i32 i = 0; i < lin.Hl.nrows; ++i) {
-      ((f64*) b.x)[i] = -lin.rhs.data[i];
+    {
+      SYM_TIME_SCOPE(timing, "iteration/factor");
+      int success = cholmod_factorize(&H, H_fac, &chol_common);
+      SYM_ASSERT(success); // TODO: idk what the value of this is supposed to be
     }
 
-    cholmod_dense* x = cholmod_solve(CHOLMOD_A, H_fac, &b, &chol_common);
+    {
+      SYM_TIME_SCOPE(timing, "iteration/solve");
 
-    // copy values into temp
-    for (i32 i = 0; i < values_dim; ++i) {
-      temp_values[i] = values[i];
+      for (i32 i = 0; i < lin.Hl.nrows; ++i) {
+        ((f64*) b.x)[i] = -lin.rhs.data[i];
+      }
+
+      int success = cholmod_solve2(
+        CHOLMOD_A,
+        H_fac,
+        &b,
+        NULL,
+        &x,
+        NULL,
+        &solve_y,
+        &solve_e,
+        &chol_common
+      );
+      SYM_ASSERT(success);
     }
 
-    // apply the update to the temp values
-    f64* xdata = (f64*) x->x;
-    for (i32 i = 0; i < p.num_cameras; ++i) {
-      i32 pose_key = 2 * i + 0;
-      i32 pose_values_offset = 10 * i;
-      i32 pose_rhs_offset = lzr.key_size_scan[lzr.key_iperm[pose_key]];
-      sym_pose3_retract_in_place(temp_values + pose_values_offset, xdata + pose_rhs_offset, epsilon);
+    {
+      SYM_TIME_SCOPE(timing, "iteration/retract");
 
-      i32 intrinsics_key = 2 * i + 1;
-      i32 intrinsics_values_offset = 10 * i + 7;
-      i32 intrinsics_rhs_offset = lzr.key_size_scan[lzr.key_iperm[intrinsics_key]];
-      for (i32 j = 0; j < 3; ++j) {
-        temp_values[intrinsics_values_offset + j] += xdata[intrinsics_rhs_offset + j];
+      // Apply the update to temporary values.
+      for (i32 i = 0; i < values_dim; ++i) {
+        temp_values[i] = values[i];
+      }
+
+      f64* xdata = (f64*) x->x;
+      for (i32 i = 0; i < p.num_cameras; ++i) {
+        i32 pose_key = 2 * i + 0;
+        i32 pose_values_offset = 10 * i;
+        i32 pose_rhs_offset = lzr.key_size_scan[lzr.key_iperm[pose_key]];
+        sym_pose3_retract_in_place(temp_values + pose_values_offset, xdata + pose_rhs_offset, epsilon);
+
+        i32 intrinsics_key = 2 * i + 1;
+        i32 intrinsics_values_offset = 10 * i + 7;
+        i32 intrinsics_rhs_offset = lzr.key_size_scan[lzr.key_iperm[intrinsics_key]];
+        for (i32 j = 0; j < 3; ++j) {
+          temp_values[intrinsics_values_offset + j] += xdata[intrinsics_rhs_offset + j];
+        }
+      }
+      for (i32 i = 0; i < p.num_points; ++i) {
+        i32 point_key = 2 * p.num_cameras + i;
+        i32 point_values_offset = 10 * p.num_cameras + 3 * i;
+        i32 point_rhs_offset = lzr.key_size_scan[lzr.key_iperm[point_key]];
+        for (i32 j = 0; j < 3; ++j) {
+          temp_values[point_values_offset + j] += xdata[point_rhs_offset + j];
+        }
       }
     }
-    for (i32 i = 0; i < p.num_points; ++i) {
-      i32 point_key = 2 * p.num_cameras + i;
-      i32 point_values_offset = 10 * p.num_cameras + 3 * i;
-      i32 point_rhs_offset = lzr.key_size_scan[lzr.key_iperm[point_key]];
-      for (i32 j = 0; j < 3; ++j) {
-        temp_values[point_values_offset + j] += xdata[point_rhs_offset + j];
-      }
-    }
 
-    f64 error = bal_linearize(p, lzr, lin, temp_values, epsilon);
+    f64 error = bal_linearize(p, lzr, lin, temp_values, epsilon, timing);
     f64 relative_reduction = (last_error - error) / (last_error + epsilon);
 
     printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %e\n", 
@@ -398,6 +457,13 @@ int main(int argc, char** argv) {
 
     if (!accept_update) {
       lambda *= lambda_up_factor;
+
+      for (i32 i = 0; i < lin.rhs.n; ++i) {
+        lin.rhs.data[i] = old_lin_rhs_data[i];
+      }
+      for (i32 i = 0; i < lin.Hl.nnz; ++i) {
+        lin.Hl.data[i] = old_lin_Hl_data[i];
+      }
     } else {
       lambda *= lambda_down_factor;
       // TODO: is this right?
@@ -416,7 +482,18 @@ int main(int argc, char** argv) {
     ++iteration;
   }
 
+  sym_timing_print(timing, stdout);
+
+  alloc->free(old_lin_rhs_data, lin.rhs.n * sizeof(f64), alloc->ctx);
+  alloc->free(old_lin_Hl_data, lin.Hl.nnz * sizeof(f64), alloc->ctx);
+
   alloc->free(b.x, lin.Hl.nrows * sizeof(f64), alloc->ctx);
+
+  cholmod_free_dense(&x, &chol_common);
+  cholmod_free_dense(&solve_y, &chol_common);
+  cholmod_free_dense(&solve_e, &chol_common);
+  cholmod_free_factor(&H_fac, &chol_common);
+  cholmod_finish(&chol_common);
 
   sym_linearizer_free(lzr, alloc);
   sym_linearization_free(lin, alloc);
@@ -429,6 +506,8 @@ int main(int argc, char** argv) {
 
   alloc->free(values, values_dim * sizeof(f64), alloc->ctx);
   alloc->free(temp_values, values_dim * sizeof(f64), alloc->ctx);
+
+  sym_timing_free(timing);
 
   printf("nalloc = %d\n", arena.nalloc);
   printf("max_nalloc = %d\n", arena.max_nalloc);

@@ -23,6 +23,7 @@
 #include "arena.h"
 #include "linearizer.h"
 #include "solver.h"
+#include "timing.h"
 
 typedef struct {
   i32* camera_indices;
@@ -33,7 +34,16 @@ typedef struct {
   i32 num_observations;
 } bal_problem;
 
-f64 bal_linearize(bal_problem p, sym_linearizer lzr, sym_linearization lin, f64* values, f64 epsilon) {
+f64 bal_linearize(
+  bal_problem p,
+  sym_linearizer lzr,
+  sym_linearization lin,
+  f64* values,
+  f64 epsilon,
+  sym_timing* timing
+) {
+  SYM_TIME_SCOPE(timing, "iteration/linearize");
+
   // Run a single linearization round.
   sym_linearization_clear(lin);
 
@@ -138,6 +148,7 @@ int main(int argc, char** argv) {
       .ctx = &arena
   };
   sym_allocator* alloc = &alloc_struct;
+  sym_timing* timing = sym_timing_new(alloc);
 
   FILE* file = fopen(argv[1], "r");
 
@@ -255,7 +266,10 @@ int main(int argc, char** argv) {
   alloc->free(Hl_block_cols, nblocks * sizeof(i32), alloc->ctx);
 
   i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
-  sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
+  {
+    SYM_TIME_SCOPE(timing, "setup/ordering");
+    sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
+  }
 
   sym_linearization lin;
   sym_linearizer lzr = sym_linearizer_new(
@@ -280,7 +294,11 @@ int main(int argc, char** argv) {
   sym_csc_mat Hlt = sym_transpose_csc(lin.Hl, Hlt_perm, alloc);
 
   sym_chol_factorization fac = {};
-  sym_chol_solver solver = sym_new_chol_solver(Hlt, &fac, alloc);
+  sym_chol_solver solver;
+  {
+    SYM_TIME_SCOPE(timing, "setup/analyze");
+    solver = sym_new_chol_solver(Hlt, &fac, alloc);
+  }
 
   sym_vec x = sym_vec_new(lin.Hl.nrows, alloc);
 
@@ -299,7 +317,7 @@ int main(int argc, char** argv) {
   }
   #endif
 
-  f64 last_error = bal_linearize(p, lzr, lin, values, epsilon);
+  f64 last_error = bal_linearize(p, lzr, lin, values, epsilon, timing);
   f64 lambda = initial_lambda;
   i32 iteration = 0;
   while (1) {
@@ -311,55 +329,72 @@ int main(int argc, char** argv) {
       old_lin_Hl_data[i] = lin.Hl.data[i];
     }
 
-    // damp the last Hessian (just unit diagonal damping)
-    for (i32 i = 0; i < lin.Hl.nrows; ++i) {
-      i32 j = lin.Hl.col_starts[i];
-      SYM_ASSERT(lin.Hl.row_indices[j] == i);
-      lin.Hl.data[j] += lambda;
-    }
+    {
+      SYM_TIME_SCOPE(timing, "iteration/damp");
 
-    // transpose it
-    for (i32 i = 0; i < lin.Hl.nnz; ++i) {
-      Hlt.data[i] = lin.Hl.data[Hlt_perm[i]];
-    }
-
-    sym_chol_solver_factor(solver, Hlt, fac);
-
-    for (i32 i = 0; i < lin.Hl.nrows; ++i) {
-      x.data[i] = -lin.rhs.data[i];
-    }
-
-    sym_chol_solver_solve_in_place(fac, x);
-
-    // copy values into temp
-    for (i32 i = 0; i < values_dim; ++i) {
-      temp_values[i] = values[i];
-    }
-
-    // apply the update to the temp values
-    for (i32 i = 0; i < p.num_cameras; ++i) {
-      i32 pose_key = 2 * i + 0;
-      i32 pose_values_offset = 10 * i;
-      i32 pose_rhs_offset = lzr.key_size_scan[lzr.key_iperm[pose_key]];
-      sym_pose3_retract_in_place(temp_values + pose_values_offset, x.data + pose_rhs_offset, epsilon);
-
-      i32 intrinsics_key = 2 * i + 1;
-      i32 intrinsics_values_offset = 10 * i + 7;
-      i32 intrinsics_rhs_offset = lzr.key_size_scan[lzr.key_iperm[intrinsics_key]];
-      for (i32 j = 0; j < 3; ++j) {
-        temp_values[intrinsics_values_offset + j] += x.data[intrinsics_rhs_offset + j];
-      }
-    }
-    for (i32 i = 0; i < p.num_points; ++i) {
-      i32 point_key = 2 * p.num_cameras + i;
-      i32 point_values_offset = 10 * p.num_cameras + 3 * i;
-      i32 point_rhs_offset = lzr.key_size_scan[lzr.key_iperm[point_key]];
-      for (i32 j = 0; j < 3; ++j) {
-        temp_values[point_values_offset + j] += x.data[point_rhs_offset + j];
+      // Damp the last Hessian with a unit diagonal.
+      for (i32 i = 0; i < lin.Hl.nrows; ++i) {
+        i32 j = lin.Hl.col_starts[i];
+        SYM_ASSERT(lin.Hl.row_indices[j] == i);
+        lin.Hl.data[j] += lambda;
       }
     }
 
-    f64 error = bal_linearize(p, lzr, lin, temp_values, epsilon);
+    {
+      SYM_TIME_SCOPE(timing, "iteration/transpose");
+
+      for (i32 i = 0; i < lin.Hl.nnz; ++i) {
+        Hlt.data[i] = lin.Hl.data[Hlt_perm[i]];
+      }
+    }
+
+    {
+      SYM_TIME_SCOPE(timing, "iteration/factor");
+      sym_chol_solver_factor(solver, Hlt, fac);
+    }
+
+    {
+      SYM_TIME_SCOPE(timing, "iteration/solve");
+
+      for (i32 i = 0; i < lin.Hl.nrows; ++i) {
+        x.data[i] = -lin.rhs.data[i];
+      }
+
+      sym_chol_solver_solve_in_place(fac, x);
+    }
+
+    {
+      SYM_TIME_SCOPE(timing, "iteration/retract");
+
+      // Apply the update to temporary values.
+      for (i32 i = 0; i < values_dim; ++i) {
+        temp_values[i] = values[i];
+      }
+
+      for (i32 i = 0; i < p.num_cameras; ++i) {
+        i32 pose_key = 2 * i + 0;
+        i32 pose_values_offset = 10 * i;
+        i32 pose_rhs_offset = lzr.key_size_scan[lzr.key_iperm[pose_key]];
+        sym_pose3_retract_in_place(temp_values + pose_values_offset, x.data + pose_rhs_offset, epsilon);
+
+        i32 intrinsics_key = 2 * i + 1;
+        i32 intrinsics_values_offset = 10 * i + 7;
+        i32 intrinsics_rhs_offset = lzr.key_size_scan[lzr.key_iperm[intrinsics_key]];
+        for (i32 j = 0; j < 3; ++j) {
+          temp_values[intrinsics_values_offset + j] += x.data[intrinsics_rhs_offset + j];
+        }
+      }
+      for (i32 i = 0; i < p.num_points; ++i) {
+        i32 point_key = 2 * p.num_cameras + i;
+        i32 point_values_offset = 10 * p.num_cameras + 3 * i;
+        i32 point_rhs_offset = lzr.key_size_scan[lzr.key_iperm[point_key]];
+        for (i32 j = 0; j < 3; ++j) {
+          temp_values[point_values_offset + j] += x.data[point_rhs_offset + j];
+        }
+      }
+    }
+
+    f64 error = bal_linearize(p, lzr, lin, temp_values, epsilon, timing);
     f64 relative_reduction = (last_error - error) / (last_error + epsilon);
 
     #ifdef SYM_LOG_STATS
@@ -444,6 +479,8 @@ int main(int argc, char** argv) {
     ++iteration;
   }
 
+  sym_timing_print(timing, stdout);
+
   alloc->free(old_lin_rhs_data, lin.rhs.n * sizeof(f64), alloc->ctx);
   alloc->free(old_lin_Hl_data, lin.Hl.nnz * sizeof(f64), alloc->ctx);
 
@@ -466,6 +503,8 @@ int main(int argc, char** argv) {
 
   alloc->free(values, values_dim * sizeof(f64), alloc->ctx);
   alloc->free(temp_values, values_dim * sizeof(f64), alloc->ctx);
+
+  sym_timing_free(timing);
 
   printf("nalloc = %d\n", arena.nalloc);
   printf("max_nalloc = %d\n", arena.max_nalloc);
