@@ -24,7 +24,9 @@ typedef struct {
     i32 Hl_block_nnz;
 } sym_linearizer;
 
-void sym_get_metis_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocator* alloc);
+// options is a METIS_NOPTIONS array, or NULL for METIS defaults.
+void sym_get_metis_tri_perm(
+    sym_csc_mat m, i32* weights, i32* options, i32* perm, sym_allocator* alloc);
 
 // Hl_block_nz_indices must outlive the linearizer
 // lin data is set to NULL

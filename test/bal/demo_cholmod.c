@@ -265,7 +265,7 @@ int main(int argc, char** argv) {
   i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
   {
     SYM_TIME_SCOPE(timing, "setup/ordering");
-    sym_get_metis_tri_perm(Hl_block, key_sizes, key_perm, alloc);
+    sym_get_metis_tri_perm(Hl_block, key_sizes, NULL, key_perm, alloc);
   }
 
   sym_linearization lin;

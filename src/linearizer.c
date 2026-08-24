@@ -5,7 +5,9 @@
 
 #include <metis.h>
 
-void sym_get_metis_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocator* alloc) {
+void sym_get_metis_tri_perm(
+    sym_csc_mat m, i32* weights, i32* options, i32* perm, sym_allocator* alloc
+) {
     SYM_ASSERT(m.nrows == m.ncols);
 
     // METIS wants a symmetric matrix with no entries on the diagonal
@@ -54,7 +56,8 @@ void sym_get_metis_tri_perm(sym_csc_mat m, i32* weights, i32* perm, sym_allocato
     alloc->free(m2_cols, m2_nnz * sizeof(i32), alloc->ctx);
 
     i32* iperm = (i32*) alloc->malloc(m.ncols * sizeof(i32), alloc->ctx); // yep, this is required
-    int result = METIS_NodeND(&m.ncols, m2.col_starts, m2.row_indices, weights, NULL, perm, iperm);
+    int result = METIS_NodeND(
+        &m.ncols, m2.col_starts, m2.row_indices, weights, options, perm, iperm);
     SYM_ASSERT(result == METIS_OK);
     alloc->free(iperm, m.ncols * sizeof(i32), alloc->ctx);
     sym_csc_mat_free(m2, alloc);
