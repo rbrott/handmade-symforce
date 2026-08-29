@@ -7,6 +7,8 @@
 // - Documentation        https://dearimgui.com/docs (same as your local docs/ folder).
 // - Introduction, links and more at the top of imgui.cpp
 
+#include <vector>
+
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_metal.h"
@@ -137,16 +139,16 @@ int main(int, char**)
                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
                 ImGuiWindowFlags_NoSavedSettings;
 
-            i32 col_starts[] = {0, 1, 2, 3, 4, 5, 5, 5, 5, 5, 5};
-            i32 row_indices[] = {0, 1, 2, 3, 4};
+            i32 col_starts[] = {0, 1, 4, 5, 6, 7};
+            i32 row_indices[] = {0, 1, 3, 4, 2, 3, 4};
 
             sym_csc_mat m = {
                 .col_starts = col_starts,
                 .row_indices = row_indices,
                 .data = nullptr,
                 .nrows = 5,
-                .ncols = 10,
-                .nnz = 5,
+                .ncols = 5,
+                .nnz = 7,
             };
 
             if (ImGui::Begin("ImGui Base", nullptr, flags)) {
@@ -158,25 +160,37 @@ int main(int, char**)
                 ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
                 static ScrollCanvas canvas;
-                {
-                    canvas.Begin(canvas_min, canvas_max, {});
 
-                    draw_list->PushClipRect(canvas_min, canvas_max, true);
+                const auto draw_mat = [&draw_list](sym_csc_mat m, f32 base_size, f32* row_weights = nullptr, f32* col_weights = nullptr) {
+                    std::vector<f32> row_size_scan;
+                    row_size_scan.push_back(0.0f);
+                    for (i32 i = 0; i < m.nrows; ++i) {
+                        row_size_scan.push_back(row_size_scan.back() + (row_weights == nullptr ? base_size : row_weights[i] * base_size));
+                    }
 
-                    draw_list->AddRectFilled(canvas_min, canvas_max, IM_COL32(50, 50, 50, 255));
+                    std::vector<f32> col_size_scan;
+                    col_size_scan.push_back(0.0f);
+                    for (i32 i = 0; i < m.ncols; ++i) {
+                        col_size_scan.push_back(col_size_scan.back() + (col_weights == nullptr ? base_size : col_weights[i] * base_size));
+                    }
 
-                    constexpr auto kCellSize = 50.0f;
+                    draw_list->AddRectFilled(
+                        canvas.CanvasToViewport(ImVec2(col_size_scan.front(), row_size_scan.front())),
+                        canvas.CanvasToViewport(ImVec2(col_size_scan.back(), row_size_scan.back())),
+                        IM_COL32(25, 25, 25, 255)
+                    );
+
                     for (i32 r = 0; r <= m.nrows; ++r) {
                         draw_list->AddLine(
-                            canvas.CanvasToViewport(ImVec2(0.0, static_cast<float>(r) * kCellSize)),
-                            canvas.CanvasToViewport(ImVec2(static_cast<float>(m.ncols) * kCellSize, static_cast<float>(r) * kCellSize)),
+                            canvas.CanvasToViewport(ImVec2(0.0, row_size_scan.at(r))),
+                            canvas.CanvasToViewport(ImVec2(col_size_scan.back(), row_size_scan.at(r))),
                             IM_COL32(150, 150, 150, 255)
                         );
                     }
                     for (i32 c = 0; c <= m.ncols; ++c) {
                         draw_list->AddLine(
-                            canvas.CanvasToViewport(ImVec2(static_cast<float>(c) * kCellSize, 0.0)),
-                            canvas.CanvasToViewport(ImVec2(static_cast<float>(c) * kCellSize, static_cast<float>(m.nrows) * kCellSize)),
+                            canvas.CanvasToViewport(ImVec2(col_size_scan.at(c), 0.0)),
+                            canvas.CanvasToViewport(ImVec2(col_size_scan.at(c), row_size_scan.back())),
                             IM_COL32(150, 150, 150, 255)
                         );
                     }
@@ -188,11 +202,26 @@ int main(int, char**)
                         }
                         int r = m.row_indices[i];
                         draw_list->AddRectFilled(
-                            canvas.CanvasToViewport(ImVec2(static_cast<float>(c) * kCellSize, static_cast<float>(r) * kCellSize)),
-                            canvas.CanvasToViewport(ImVec2(static_cast<float>(c + 1) * kCellSize, static_cast<float>(r + 1) * kCellSize)),
+                            canvas.CanvasToViewport(ImVec2(col_size_scan.at(c), row_size_scan.at(r))),
+                            canvas.CanvasToViewport(ImVec2(col_size_scan.at(c + 1), row_size_scan.at(r + 1))),
                             IM_COL32(255, 255, 255, 255)
                         );
                     }
+                };
+
+                {
+                    canvas.Begin(canvas_min, canvas_max, {});
+
+                    draw_list->PushClipRect(canvas_min, canvas_max, true);
+
+                    draw_list->AddRectFilled(canvas_min, canvas_max, IM_COL32(50, 50, 50, 255));
+
+                    std::vector<f32> row_weights(m.nrows, 1.0);
+                    row_weights.at(1) = 2.0;
+                    std::vector<f32> col_weights(m.ncols, 1.0);
+                    col_weights.at(4) = 2.0;
+                    constexpr auto kCellSize = 50.0f;
+                    draw_mat(m, kCellSize, row_weights.data(), col_weights.data());
 
                     canvas.End();
                 }
