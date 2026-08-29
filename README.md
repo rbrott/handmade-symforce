@@ -1,7 +1,7 @@
 # Handmade SymForce
 
-Port of a chunk of the [SymForce](https://github.com/symforce-org/symforce) 
-optimizer to C. Implements just enough to optimize 
+Port of a chunk of the [SymForce](https://github.com/symforce-org/symforce)
+optimizer to C. Implements just enough to optimize
 [Bundle Adjustment in the Large](https://grail.cs.washington.edu/projects/bal/)
 problems.
 
@@ -52,4 +52,3 @@ Or if you want to go fast,
 ```
 zig build -Doptimize=ReleaseFast
 ```
-
