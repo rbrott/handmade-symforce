@@ -345,6 +345,20 @@ pub fn build(b: *std.Build) void {
     }
     const balDemo = b.addExecutable(.{ .name = "balDemo", .root_module = balDemo_mod });
 
+    // balStats reports BAL structure and symbolic fill under the solver's ordering.
+    const balStats_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    balStats_mod.addIncludePath(b.path("src"));
+    balStats_mod.addIncludePath(b.path(metis_dir ++ "/include"));
+    balStats_mod.addCSourceFiles(.{
+        .files = &.{
+            "tools/bal_stats.c",
+        },
+        .flags = &.{},
+    });
+    balStats_mod.linkLibrary(lib);
+    balStats_mod.linkLibrary(libmetis);
+    const balStats = b.addExecutable(.{ .name = "balStats", .root_module = balStats_mod });
+
     // CHOLMOD, built from vendored SuiteSparse source.
     const cholmod_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     cholmod_mod.addIncludePath(b.path(suitesparse_dir ++ "/SuiteSparse_config"));
@@ -405,6 +419,7 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(balTest);
     b.installArtifact(balDemo);
+    b.installArtifact(balStats);
     b.installArtifact(balDemoCholmod);
     b.installArtifact(unit);
     b.installArtifact(timingTest);
@@ -414,6 +429,9 @@ pub fn build(b: *std.Build) void {
     const balDemoStep = b.step("balDemo", "Build only the balDemo executable");
     balDemoStep.dependOn(&b.addInstallArtifact(balDemo, .{}).step);
 
+    const balStatsStep = b.step("balStats", "Build only the BAL metadata reporter");
+    balStatsStep.dependOn(&b.addInstallArtifact(balStats, .{}).step);
+
     // Generate compile_commands.json for clangd with `zig build cdb`.
     const cdb_targets = b.allocator.dupe(*std.Build.Step.Compile, &.{
         gklib,
@@ -421,6 +439,7 @@ pub fn build(b: *std.Build) void {
         lib,
         balTest,
         balDemo,
+        balStats,
         cholmod,
         balDemoCholmod,
         unit,
