@@ -20,6 +20,8 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include "scroll_canvas.h"
+
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
@@ -135,20 +137,27 @@ int main(int, char**)
                 ImGuiWindowFlags_NoSavedSettings;
 
             if (ImGui::Begin("ImGui Base", nullptr, flags)) {
-                static float f = 0.0f;
-                static int counter = 0;
+                // Using InvisibleButton() as a convenience 1) it will advance the layout cursor and 2) allows us to use IsItemHovered()/IsItemActive()
+                ImVec2 canvas_min = ImGui::GetCursorScreenPos();      // ImDrawList API uses screen coordinates!
+                ImVec2 canvas_size = ImGui::GetContentRegionAvail();
+                ImVec2 canvas_max = ImVec2(canvas_min.x + canvas_size.x, canvas_min.y + canvas_size.y);
 
-                ImGui::Text("This is some useful text.");               // Display some text (you can use a format strings too)
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
-                ImGui::SliderFloat("float", &f, 0.0f, 1.0f);            // Edit 1 float using a slider from 0.0f to 1.0f
-                ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
+                static ScrollCanvas canvas;
+                {
+                    canvas.Begin(canvas_min, canvas_max, {});
 
-                if (ImGui::Button("Button"))                            // Buttons return true when clicked (most widgets return true when edited/activated)
-                    counter++;
-                ImGui::SameLine();
-                ImGui::Text("counter = %d", counter);
+                    draw_list->PushClipRect(canvas_min, canvas_max, true);
 
-                ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / io.Framerate, io.Framerate);
+                    draw_list->AddRectFilled(canvas_min, canvas_max, IM_COL32(0, 255, 0, 255));
+
+                    const ImVec2 corner_viewport = canvas.CanvasToViewport(ImVec2(10, 10));
+                    draw_list->AddCircleFilled(corner_viewport, canvas.Scale() * 5.0f, IM_COL32(255, 0, 0, 255), 48);
+
+                    canvas.End();
+                }
+
                 ImGui::End();
             }
 

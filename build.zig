@@ -432,21 +432,6 @@ pub fn build(b: *std.Build) void {
     const balStatsStep = b.step("balStats", "Build only the BAL metadata reporter");
     balStatsStep.dependOn(&b.addInstallArtifact(balStats, .{}).step);
 
-    // Generate compile_commands.json for clangd with `zig build cdb`.
-    const cdb_targets = b.allocator.dupe(*std.Build.Step.Compile, &.{
-        gklib,
-        libmetis,
-        lib,
-        balTest,
-        balDemo,
-        balStats,
-        cholmod,
-        balDemoCholmod,
-        unit,
-        timingTest,
-    }) catch @panic("OOM");
-    _ = zcc.createStep(b, "cdb", cdb_targets);
-
     // The Python module needs Python + numpy headers at configure time, which
     // aren't available everywhere (e.g. a bare Linux container). Pass -Dnopython
     // to skip it and build only the C/C++ targets.
@@ -557,6 +542,7 @@ pub fn build(b: *std.Build) void {
     const main_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
+        .link_libcpp = true,
     });
     main_mod.addIncludePath(b.path("third_party/imgui-1.92.7"));
     main_mod.addIncludePath(b.path("third_party/imgui-1.92.7/backends"));
@@ -581,4 +567,20 @@ pub fn build(b: *std.Build) void {
     });
 
     b.installArtifact(main);
+
+    // Generate compile_commands.json for clangd with `zig build cdb`.
+    const cdb_targets = b.allocator.dupe(*std.Build.Step.Compile, &.{
+        gklib,
+        libmetis,
+        lib,
+        balTest,
+        balDemo,
+        balStats,
+        cholmod,
+        balDemoCholmod,
+        unit,
+        timingTest,
+        main,
+    }) catch @panic("OOM");
+    _ = zcc.createStep(b, "cdb", cdb_targets);
 }
