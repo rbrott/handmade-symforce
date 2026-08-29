@@ -10,6 +10,7 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_metal.h"
+#include "mat.h"
 #include <stdio.h>
 
 #define GLFW_INCLUDE_NONE
@@ -136,6 +137,18 @@ int main(int, char**)
                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus |
                 ImGuiWindowFlags_NoSavedSettings;
 
+            i32 col_starts[] = {0, 1, 2, 3, 4, 5, 5, 5, 5, 5, 5};
+            i32 row_indices[] = {0, 1, 2, 3, 4};
+
+            sym_csc_mat m = {
+                .col_starts = col_starts,
+                .row_indices = row_indices,
+                .data = nullptr,
+                .nrows = 5,
+                .ncols = 10,
+                .nnz = 5,
+            };
+
             if (ImGui::Begin("ImGui Base", nullptr, flags)) {
                 // Using InvisibleButton() as a convenience 1) it will advance the layout cursor and 2) allows us to use IsItemHovered()/IsItemActive()
                 ImVec2 canvas_min = ImGui::GetCursorScreenPos();      // ImDrawList API uses screen coordinates!
@@ -150,10 +163,36 @@ int main(int, char**)
 
                     draw_list->PushClipRect(canvas_min, canvas_max, true);
 
-                    draw_list->AddRectFilled(canvas_min, canvas_max, IM_COL32(0, 255, 0, 255));
+                    draw_list->AddRectFilled(canvas_min, canvas_max, IM_COL32(50, 50, 50, 255));
 
-                    const ImVec2 corner_viewport = canvas.CanvasToViewport(ImVec2(10, 10));
-                    draw_list->AddCircleFilled(corner_viewport, canvas.Scale() * 5.0f, IM_COL32(255, 0, 0, 255), 48);
+                    constexpr auto kCellSize = 50.0f;
+                    for (i32 r = 0; r <= m.nrows; ++r) {
+                        draw_list->AddLine(
+                            canvas.CanvasToViewport(ImVec2(0.0, static_cast<float>(r) * kCellSize)),
+                            canvas.CanvasToViewport(ImVec2(static_cast<float>(m.ncols) * kCellSize, static_cast<float>(r) * kCellSize)),
+                            IM_COL32(150, 150, 150, 255)
+                        );
+                    }
+                    for (i32 c = 0; c <= m.ncols; ++c) {
+                        draw_list->AddLine(
+                            canvas.CanvasToViewport(ImVec2(static_cast<float>(c) * kCellSize, 0.0)),
+                            canvas.CanvasToViewport(ImVec2(static_cast<float>(c) * kCellSize, static_cast<float>(m.nrows) * kCellSize)),
+                            IM_COL32(150, 150, 150, 255)
+                        );
+                    }
+
+                    int c = 0;
+                    for (i32 i = 0; i < m.nnz; ++i) {
+                        while (m.col_starts[c + 1] <= i) {
+                            ++c;
+                        }
+                        int r = m.row_indices[i];
+                        draw_list->AddRectFilled(
+                            canvas.CanvasToViewport(ImVec2(static_cast<float>(c) * kCellSize, static_cast<float>(r) * kCellSize)),
+                            canvas.CanvasToViewport(ImVec2(static_cast<float>(c + 1) * kCellSize, static_cast<float>(r + 1) * kCellSize)),
+                            IM_COL32(255, 255, 255, 255)
+                        );
+                    }
 
                     canvas.End();
                 }
