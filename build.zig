@@ -460,4 +460,106 @@ pub fn build(b: *std.Build) void {
         const balInstallStep = b.addInstallArtifact(balModule, .{ .dest_sub_path = "bal.so" });
         b.getInstallStep().dependOn(&balInstallStep.step);
     }
+
+    const glfw_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    glfw_mod.addCSourceFiles(.{
+        .root = b.path("third_party/glfw-3.4/src"),
+        .files = &.{
+            "cocoa_joystick.m",
+            "cocoa_init.m",
+            "cocoa_monitor.m",
+            "cocoa_time.c",
+            "cocoa_window.m",
+            "context.c",
+            "egl_context.c",
+            "glx_context.c",
+            "init.c",
+            "input.c",
+            "monitor.c",
+            "nsgl_context.m",
+            "null_init.c",
+            "null_joystick.c",
+            "null_monitor.c",
+            "null_window.c",
+            "osmesa_context.c",
+            "platform.c",
+            "posix_module.c",
+            "posix_poll.c",
+            "posix_thread.c",
+            "posix_time.c",
+            "vulkan.c",
+            "wgl_context.c",
+            "window.c",
+        },
+        .flags = &.{
+            "-D_GLFW_COCOA",
+        },
+    });
+
+    const glfw = b.addLibrary(.{
+        .name = "glfw",
+        .linkage = .static,
+        .root_module = glfw_mod,
+    });
+
+    const imgui_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+        .link_libcpp = true,
+    });
+    imgui_mod.addIncludePath(b.path("third_party/imgui-1.92.7"));
+    imgui_mod.addIncludePath(b.path("third_party/imgui-1.92.7/backends"));
+    imgui_mod.addIncludePath(b.path("third_party/glfw-3.4/include"));
+    imgui_mod.addCSourceFiles(.{
+        .root = b.path("third_party/imgui-1.92.7"),
+        .files = &.{
+            "imgui.cpp",
+            "imgui_demo.cpp",
+            "imgui_draw.cpp",
+            "imgui_tables.cpp",
+            "imgui_widgets.cpp",
+            "backends/imgui_impl_glfw.cpp",
+            "backends/imgui_impl_metal.mm",
+        },
+        .flags = &.{},
+    });
+    imgui_mod.linkLibrary(glfw);
+
+    const imgui = b.addLibrary(.{
+        .name = "imgui",
+        .linkage = .static,
+        .root_module = imgui_mod,
+    });
+
+    const main_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+    });
+    main_mod.addIncludePath(b.path("third_party/imgui-1.92.7"));
+    main_mod.addIncludePath(b.path("third_party/imgui-1.92.7/backends"));
+    main_mod.addIncludePath(b.path("third_party/glfw-3.4/include"));
+    main_mod.addCSourceFiles(.{
+        .files = &.{
+            "src/main.mm",
+        },
+        .flags = &.{},
+    });
+    main_mod.linkFramework("Metal", .{});
+    main_mod.linkFramework("MetalKit", .{});
+    main_mod.linkFramework("Cocoa", .{});
+    main_mod.linkFramework("IOKit", .{});
+    main_mod.linkFramework("CoreVideo", .{});
+    main_mod.linkFramework("QuartzCore", .{});
+    main_mod.linkLibrary(imgui);
+
+    const main = b.addExecutable(.{
+        .name = "main",
+        .root_module = main_mod,
+    });
+
+    b.installArtifact(main);
 }
