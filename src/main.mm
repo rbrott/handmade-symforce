@@ -25,13 +25,146 @@
 
 #include "scroll_canvas.h"
 
+#include "sym_assert.h"
+#include "arena.h"
+#include "linearizer.h"
+#include "solver.h"
+
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
-int main(int, char**)
+typedef struct {
+  i32* camera_indices;
+  i32* point_indices;
+  f64* pixels;
+  i32 num_cameras;
+  i32 num_points;
+  i32 num_observations;
+} bal_problem;
+
+int main(int argc, char** argv)
 {
+    SYM_ASSERT(argc == 2);
+
+    size n = 1L << 30; // 1 GiB seems fine
+    printf("Allocating %ld bytes\n", n);
+    u8* buf = (u8*) malloc(n);
+
+    sym_arena arena = {
+        .beg = buf,
+        .end = buf + n,
+    };
+
+    sym_allocator alloc_struct = {
+        .malloc = sym_arena_malloc,
+        .free = sym_arena_free,
+        .ctx = &arena
+    };
+    sym_allocator* alloc = &alloc_struct;
+
+    FILE* file = fopen(argv[1], "r");
+
+    bal_problem p = {};
+    fscanf(file, "%d", &p.num_cameras);
+    fscanf(file, "%d", &p.num_points);
+    fscanf(file, "%d", &p.num_observations);
+
+    p.camera_indices = (i32*) alloc->malloc(p.num_observations * sizeof(i32), alloc->ctx);
+    p.point_indices = (i32*) alloc->malloc(p.num_observations * sizeof(i32), alloc->ctx);
+
+    for (i32 i = 0; i < p.num_observations; i++) {
+        i32 camera, point;
+        fscanf(file, "%d", &camera);
+        fscanf(file, "%d", &point);
+
+        f64 px, py;
+        fscanf(file, "%lf", &px);
+        fscanf(file, "%lf", &py);
+
+        p.camera_indices[i] = camera;
+        p.point_indices[i] = point;
+    }
+
+    fclose(file);
+
+    // Compute Hessian_lower block triplets.
+    i32 nblocks = p.num_observations * 6;
+    i32* Hl_block_rows = (i32*) alloc->malloc(nblocks * sizeof(i32), alloc->ctx);
+    i32* Hl_block_cols = (i32*) alloc->malloc(nblocks * sizeof(i32), alloc->ctx);
+
+    // Linearizer callers are responsible for choosing the order of the keys.
+    // Here we have all the cameras in order (pose then intrinsics) followed by all the points.
+    i32 nkeys = 2 * p.num_cameras + p.num_points;
+    for (i32 obs_index = 0; obs_index < p.num_observations; ++obs_index) {
+        i32 camera_index = p.camera_indices[obs_index];
+        i32 pose_key = 2 * camera_index + 0;
+        i32 intrinsics_key = 2 * camera_index + 1;
+        i32 point_index = p.point_indices[obs_index];
+        i32 point_key = 2 * p.num_cameras + point_index;
+
+        // NOTE: The order here must be consistent with the order later on in the update calls.
+        Hl_block_rows[6 * obs_index + 0] = pose_key;
+        Hl_block_rows[6 * obs_index + 1] = intrinsics_key;
+        Hl_block_rows[6 * obs_index + 2] = point_key;
+        Hl_block_rows[6 * obs_index + 3] = intrinsics_key;
+        Hl_block_rows[6 * obs_index + 4] = point_key;
+        Hl_block_rows[6 * obs_index + 5] = point_key;
+
+        Hl_block_cols[6 * obs_index + 0] = pose_key;
+        Hl_block_cols[6 * obs_index + 1] = pose_key;
+        Hl_block_cols[6 * obs_index + 2] = pose_key;
+        Hl_block_cols[6 * obs_index + 3] = intrinsics_key;
+        Hl_block_cols[6 * obs_index + 4] = intrinsics_key;
+        Hl_block_cols[6 * obs_index + 5] = point_key;
+    }
+
+    // Compute key sizes.
+    i32* key_sizes = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
+    for (i32 i = 0; i < p.num_cameras; ++i) {
+        key_sizes[2 * i + 0] = 6;
+        key_sizes[2 * i + 1] = 3;
+    }
+    for (i32 i = 0; i < p.num_points; ++i) {
+        key_sizes[2 * p.num_cameras + i] = 3;
+    }
+
+    std::vector<f32> key_sizes_f32;
+    for (i32 i = 0; i < nkeys; ++i) {
+        key_sizes_f32.push_back(key_sizes[i]);
+    }
+
+    // Create the linearizer, linearization.
+    i32* Hl_block_nz_indices = (i32*) alloc->malloc(nblocks * sizeof(i32), alloc->ctx);
+    sym_csc_mat Hl_block = sym_csc_from_pairs(Hl_block_rows, Hl_block_cols, nblocks, nkeys, nkeys, Hl_block_nz_indices, alloc);
+    alloc->free(Hl_block_rows, nblocks * sizeof(i32), alloc->ctx);
+    alloc->free(Hl_block_cols, nblocks * sizeof(i32), alloc->ctx);
+
+    i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
+    sym_get_metis_tri_perm(Hl_block, key_sizes, NULL, key_perm, alloc);
+
+    sym_linearization lin;
+    sym_linearizer lzr = sym_linearizer_new(
+        Hl_block, Hl_block_nz_indices, nblocks,
+        key_sizes, nkeys,
+        key_perm,
+        &lin,
+        alloc
+    );
+    lin.Hl.data = (f64*) alloc->malloc(lin.Hl.nnz * sizeof(f64), alloc->ctx);
+    lin.rhs.data = (f64*) alloc->malloc(lin.rhs.n * sizeof(f64), alloc->ctx);
+
+    alloc->free(key_perm, nkeys * sizeof(i32), alloc->ctx);
+    alloc->free(key_sizes, nkeys * sizeof(i32), alloc->ctx);
+
+    i32* Hlt_perm = (i32*) alloc->malloc(lin.Hl.nnz * sizeof(i32), alloc->ctx);
+    sym_csc_mat Hlt = sym_transpose_csc(lin.Hl, Hlt_perm, alloc);
+
+    sym_chol_factorization fac = {};
+    sym_chol_solver solver;
+    solver = sym_new_chol_solver(Hlt, &fac, false, alloc);
+
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
         return 1;
@@ -161,7 +294,7 @@ int main(int, char**)
 
                 static ScrollCanvas canvas;
 
-                const auto draw_mat = [&draw_list](sym_csc_mat m, f32 base_size, f32* row_weights = nullptr, f32* col_weights = nullptr) {
+                const auto draw_mat = [&draw_list](sym_csc_mat m, f32 base_size, f32* row_weights = nullptr, f32* col_weights = nullptr, bool fill_diag = false) {
                     std::vector<f32> row_size_scan;
                     row_size_scan.push_back(0.0f);
                     for (i32 i = 0; i < m.nrows; ++i) {
@@ -180,20 +313,20 @@ int main(int, char**)
                         IM_COL32(25, 25, 25, 255)
                     );
 
-                    for (i32 r = 0; r <= m.nrows; ++r) {
-                        draw_list->AddLine(
-                            canvas.CanvasToViewport(ImVec2(0.0, row_size_scan.at(r))),
-                            canvas.CanvasToViewport(ImVec2(col_size_scan.back(), row_size_scan.at(r))),
-                            IM_COL32(150, 150, 150, 255)
-                        );
-                    }
-                    for (i32 c = 0; c <= m.ncols; ++c) {
-                        draw_list->AddLine(
-                            canvas.CanvasToViewport(ImVec2(col_size_scan.at(c), 0.0)),
-                            canvas.CanvasToViewport(ImVec2(col_size_scan.at(c), row_size_scan.back())),
-                            IM_COL32(150, 150, 150, 255)
-                        );
-                    }
+                    // for (i32 r = 0; r <= m.nrows; ++r) {
+                    //     draw_list->AddLine(
+                    //         canvas.CanvasToViewport(ImVec2(0.0, row_size_scan.at(r))),
+                    //         canvas.CanvasToViewport(ImVec2(col_size_scan.back(), row_size_scan.at(r))),
+                    //         IM_COL32(150, 150, 150, 255)
+                    //     );
+                    // }
+                    // for (i32 c = 0; c <= m.ncols; ++c) {
+                    //     draw_list->AddLine(
+                    //         canvas.CanvasToViewport(ImVec2(col_size_scan.at(c), 0.0)),
+                    //         canvas.CanvasToViewport(ImVec2(col_size_scan.at(c), row_size_scan.back())),
+                    //         IM_COL32(150, 150, 150, 255)
+                    //     );
+                    // }
 
                     int c = 0;
                     for (i32 i = 0; i < m.nnz; ++i) {
@@ -207,6 +340,16 @@ int main(int, char**)
                             IM_COL32(255, 255, 255, 255)
                         );
                     }
+
+                    if (fill_diag) {
+                        for (i32 i = 0; i < m.nrows && i < m.ncols; ++i) {
+                            draw_list->AddRectFilled(
+                                canvas.CanvasToViewport(ImVec2(col_size_scan.at(i), row_size_scan.at(i))),
+                                canvas.CanvasToViewport(ImVec2(col_size_scan.at(i + 1), row_size_scan.at(i + 1))),
+                                IM_COL32(255, 255, 255, 255)
+                            );
+                        }
+                    }
                 };
 
                 {
@@ -216,12 +359,17 @@ int main(int, char**)
 
                     draw_list->AddRectFilled(canvas_min, canvas_max, IM_COL32(50, 50, 50, 255));
 
-                    std::vector<f32> row_weights(m.nrows, 1.0);
-                    row_weights.at(1) = 2.0;
-                    std::vector<f32> col_weights(m.ncols, 1.0);
-                    col_weights.at(4) = 2.0;
+                    // std::vector<f32> row_weights(m.nrows, 1.0);
+                    // row_weights.at(1) = 2.0;
+                    // std::vector<f32> col_weights(m.ncols, 1.0);
+                    // col_weights.at(4) = 2.0;
                     constexpr auto kCellSize = 50.0f;
-                    draw_mat(m, kCellSize, row_weights.data(), col_weights.data());
+                    // draw_mat(m, kCellSize, row_weights.data(), col_weights.data());
+
+
+                    // draw_mat(Hl_block, kCellSize, key_sizes_f32.data(), key_sizes_f32.data());
+                    // draw_mat(Hl_block, kCellSize);
+                    draw_mat(fac.L, kCellSize, nullptr, nullptr, true);
 
                     canvas.End();
                 }

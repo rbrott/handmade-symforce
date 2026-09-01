@@ -553,6 +553,8 @@ pub fn build(b: *std.Build) void {
         },
         .flags = &.{},
     });
+    main_mod.linkLibrary(lib);
+    main_mod.linkLibrary(libmetis);
     main_mod.linkFramework("Metal", .{});
     main_mod.linkFramework("MetalKit", .{});
     main_mod.linkFramework("Cocoa", .{});
