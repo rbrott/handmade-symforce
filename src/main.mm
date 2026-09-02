@@ -8,6 +8,8 @@
 // - Introduction, links and more at the top of imgui.cpp
 
 #include <vector>
+#include <algorithm>
+#include <cstddef>
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
@@ -43,6 +45,128 @@ typedef struct {
   i32 num_points;
   i32 num_observations;
 } bal_problem;
+
+typedef struct {
+    i32 col;
+    i32 row;
+} sparse_cell;
+
+typedef struct {
+    float canvas_origin[2];
+    float cell_size;
+    float padding;
+    float display_pos[2];
+    float display_size[2];
+} sparse_uniforms;
+
+static constexpr NSUInteger kVerticesPerCell = 6;
+
+static_assert(offsetof(sparse_uniforms, display_pos) == 4 * sizeof(float));
+static_assert(sizeof(sparse_uniforms) == 8 * sizeof(float));
+
+typedef struct {
+    id<MTLRenderCommandEncoder> encoder;
+    id<MTLRenderPipelineState> pipeline;
+    id<MTLBuffer> cells;
+    sparse_uniforms uniforms;
+    i32 num_cells;
+} sparse_draw;
+
+static id<MTLRenderPipelineState> new_sparse_pipeline(
+    id<MTLDevice> device,
+    MTLPixelFormat pixel_format)
+{
+    NSString* source = @
+        "#include <metal_stdlib>\n"
+        "using namespace metal;\n"
+        "struct Cell { int col; int row; };\n"
+        "struct Uniforms {\n"
+        "  float2 canvas_origin;\n"
+        "  float cell_size;\n"
+        "  float2 display_pos;\n"
+        "  float2 display_size;\n"
+        "};\n"
+        "vertex float4 sparse_vertex(\n"
+        "    uint vertex_id [[vertex_id]],\n"
+        "    uint instance_id [[instance_id]],\n"
+        "    device const Cell* cells [[buffer(0)]],\n"
+        "    constant Uniforms& uniforms [[buffer(1)]]) {\n"
+        "  constexpr float2 corners[] = {\n"
+        "    {0, 0}, {1, 0}, {1, 1}, {0, 0}, {1, 1}, {0, 1}\n"
+        "  };\n"
+        "  float2 cell = float2(cells[instance_id].col, cells[instance_id].row);\n"
+        "  float2 screen = uniforms.canvas_origin +\n"
+        "      (cell + corners[vertex_id]) * uniforms.cell_size;\n"
+        "  float2 unit = (screen - uniforms.display_pos) / uniforms.display_size;\n"
+        "  return float4(unit.x * 2.0 - 1.0, 1.0 - unit.y * 2.0, 0, 1);\n"
+        "}\n"
+        "fragment half4 sparse_fragment() {\n"
+        "  return half4(1);\n"
+        "}\n";
+
+    NSError* error = nil;
+    id<MTLLibrary> library = [device newLibraryWithSource:source options:nil error:&error];
+    if (library == nil) {
+        NSLog(@"Sparse shader compilation failed: %@", error);
+        return nil;
+    }
+
+    MTLRenderPipelineDescriptor* descriptor = [MTLRenderPipelineDescriptor new];
+    descriptor.vertexFunction = [library newFunctionWithName:@"sparse_vertex"];
+    descriptor.fragmentFunction = [library newFunctionWithName:@"sparse_fragment"];
+    descriptor.colorAttachments[0].pixelFormat = pixel_format;
+
+    id<MTLRenderPipelineState> pipeline =
+        [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    if (pipeline == nil) {
+        NSLog(@"Sparse pipeline creation failed: %@", error);
+    }
+
+    return pipeline;
+}
+
+static void draw_sparse_shader(const ImDrawList*, const ImDrawCmd* command)
+{
+    const sparse_draw* draw = (const sparse_draw*) command->UserCallbackData;
+    ImDrawData* data = ImGui::GetDrawData();
+    ImVec2 scale = data->FramebufferScale;
+    ImVec2 clip_min(
+        (command->ClipRect.x - data->DisplayPos.x) * scale.x,
+        (command->ClipRect.y - data->DisplayPos.y) * scale.y
+    );
+    ImVec2 clip_max(
+        (command->ClipRect.z - data->DisplayPos.x) * scale.x,
+        (command->ClipRect.w - data->DisplayPos.y) * scale.y
+    );
+    i32 width = (i32) (data->DisplaySize.x * scale.x);
+    i32 height = (i32) (data->DisplaySize.y * scale.y);
+
+    clip_min.x = std::max(clip_min.x, 0.0f);
+    clip_min.y = std::max(clip_min.y, 0.0f);
+    clip_max.x = std::min(clip_max.x, (float) width);
+    clip_max.y = std::min(clip_max.y, (float) height);
+    if (clip_max.x <= clip_min.x || clip_max.y <= clip_min.y) {
+        return;
+    }
+
+    MTLScissorRect scissor = {
+        .x = (NSUInteger) clip_min.x,
+        .y = (NSUInteger) clip_min.y,
+        .width = (NSUInteger) (clip_max.x - clip_min.x),
+        .height = (NSUInteger) (clip_max.y - clip_min.y),
+    };
+
+    [draw->encoder setScissorRect:scissor];
+    [draw->encoder setRenderPipelineState:draw->pipeline];
+    [draw->encoder setVertexBuffer:draw->cells offset:0 atIndex:0];
+    [draw->encoder setVertexBytes:&draw->uniforms
+                           length:sizeof(draw->uniforms)
+                          atIndex:1];
+    [draw->encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                      vertexStart:0
+                      vertexCount:kVerticesPerCell
+                    instanceCount:(NSUInteger) draw->num_cells];
+}
 
 int main(int argc, char** argv)
 {
@@ -227,6 +351,10 @@ int main(int argc, char** argv)
 
     MTLRenderPassDescriptor *renderPassDescriptor = [MTLRenderPassDescriptor new];
 
+    id<MTLRenderPipelineState> sparse_pipeline =
+        new_sparse_pipeline(device, layer.pixelFormat);
+    SYM_ASSERT(sparse_pipeline != nil);
+
     // Our state
     float clear_color[4] = {0.45f, 0.55f, 0.60f, 1.00f};
 
@@ -285,10 +413,15 @@ int main(int argc, char** argv)
             };
 
             if (ImGui::Begin("ImGui Base", nullptr, flags)) {
+                static bool use_sparse_shader = false;
+                ImGui::Checkbox("Dedicated shader", &use_sparse_shader);
+
                 // Using InvisibleButton() as a convenience 1) it will advance the layout cursor and 2) allows us to use IsItemHovered()/IsItemActive()
                 ImVec2 canvas_min = ImGui::GetCursorScreenPos();      // ImDrawList API uses screen coordinates!
                 ImVec2 canvas_size = ImGui::GetContentRegionAvail();
                 ImVec2 canvas_max = ImVec2(canvas_min.x + canvas_size.x, canvas_min.y + canvas_size.y);
+
+                ImGui::InvisibleButton("canvas", canvas_size, ImGuiButtonFlags_MouseButtonLeft);
 
                 ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -352,6 +485,55 @@ int main(int argc, char** argv)
                     }
                 };
 
+                const auto draw_mat_shader = [&](sym_csc_mat m, f32 base_size, bool fill_diag = false) {
+                    ImVec2 matrix_min = canvas.CanvasToViewport(ImVec2(0.0f, 0.0f));
+                    ImVec2 matrix_max = canvas.CanvasToViewport(ImVec2(
+                        m.ncols * base_size,
+                        m.nrows * base_size
+                    ));
+                    draw_list->AddRectFilled(
+                        matrix_min,
+                        matrix_max,
+                        IM_COL32(25, 25, 25, 255)
+                    );
+
+                    // One shader instance draws one CSC nonzero.
+                    std::vector<sparse_cell> cells;
+                    cells.reserve(m.nnz);
+                    for (i32 col = 0; col < m.ncols; ++col) {
+                        for (i32 nz = m.col_starts[col]; nz < m.col_starts[col + 1]; ++nz) {
+                            cells.push_back({col, m.row_indices[nz]});
+                        }
+                    }
+                    if (fill_diag) {
+                        for (i32 i = 0; i < m.nrows && i < m.ncols; ++i) {
+                            cells.push_back({i, i});
+                        }
+                    }
+                    if (cells.empty()) {
+                        return;
+                    }
+
+                    id<MTLBuffer> buffer = [[device
+                        newBufferWithBytes:cells.data()
+                                    length:cells.size() * sizeof(sparse_cell)
+                                   options:MTLResourceStorageModeShared] autorelease];
+                    sparse_draw draw = {
+                        .encoder = renderEncoder,
+                        .pipeline = sparse_pipeline,
+                        .cells = buffer,
+                        .uniforms = {
+                            .canvas_origin = {matrix_min.x, matrix_min.y},
+                            .cell_size = base_size * canvas.Scale(),
+                            .display_pos = {vp->Pos.x, vp->Pos.y},
+                            .display_size = {vp->Size.x, vp->Size.y},
+                        },
+                        .num_cells = (i32) cells.size(),
+                    };
+                    draw_list->AddCallback(draw_sparse_shader, &draw, sizeof(draw));
+                    draw_list->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
+                };
+
                 {
                     canvas.Begin(canvas_min, canvas_max, {});
 
@@ -369,7 +551,11 @@ int main(int argc, char** argv)
 
                     // draw_mat(Hl_block, kCellSize, key_sizes_f32.data(), key_sizes_f32.data());
                     // draw_mat(Hl_block, kCellSize);
-                    draw_mat(fac.L, kCellSize, nullptr, nullptr, true);
+                    if (use_sparse_shader) {
+                        draw_mat_shader(fac.L, kCellSize, true);
+                    } else {
+                        draw_mat(fac.L, kCellSize, nullptr, nullptr, true);
+                    }
 
                     canvas.End();
                 }
