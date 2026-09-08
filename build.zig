@@ -304,6 +304,18 @@ pub fn build(b: *std.Build) void {
     });
     const lib = b.addLibrary(.{ .name = "lib", .linkage = .static, .root_module = lib_mod });
 
+    const test_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    test_mod.addIncludePath(b.path("src"));
+    test_mod.addIncludePath(b.path("test"));
+    test_mod.addIncludePath(b.path(metis_dir ++ "/include"));
+    test_mod.addCSourceFiles(.{
+        .files = &.{
+            "test/bal/bal.c",
+        },
+        .flags = &.{},
+    });
+    const test_ = b.addLibrary(.{ .name = "test", .linkage = .static, .root_module = test_mod });
+
     // balTest (C++ reference implementation, uses Eigen).
     const balTest_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libcpp = true });
     balTest_mod.addIncludePath(b.path("src"));
@@ -356,6 +368,7 @@ pub fn build(b: *std.Build) void {
         .flags = &.{},
     });
     demo_optimizer_mod.linkLibrary(lib);
+    demo_optimizer_mod.linkLibrary(test_);
     demo_optimizer_mod.linkLibrary(libmetis);
     const demo_optimizer = b.addExecutable(.{ .name = "balDemoOptimizer", .root_module = demo_optimizer_mod });
 
@@ -590,6 +603,7 @@ pub fn build(b: *std.Build) void {
         gklib,
         libmetis,
         lib,
+        test_,
         balTest,
         balDemo,
         demo_optimizer,
