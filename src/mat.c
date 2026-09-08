@@ -49,9 +49,9 @@ void sym_csc_mat_zero(sym_csc_mat m) {
 
 // TODO: some callers want an inverted perm -- consider providing both or two versions?
 void sym_sort_pairs(
-    i32* rows, i32* cols, i32 n, 
-    i32 nrows, i32 ncols, 
-    i32* perm, 
+    i32* rows, i32* cols, i32 n,
+    i32 nrows, i32 ncols,
+    i32* perm,
     sym_allocator* alloc
 ) {
     i32 max = nrows > ncols ? nrows : ncols;
@@ -72,7 +72,7 @@ void sym_sort_pairs(
             psum += tmp;
         }
     }
-    
+
     for (i32 i = 0; i < n; ++i) {
         buf2[buf1[rows[i]]++] = i;
     }
@@ -102,8 +102,8 @@ void sym_sort_pairs(
 }
 
 sym_csc_mat sym_csc_from_pairs(
-    i32* rows, i32* cols, i32 n, 
-    i32 nrows, i32 ncols, 
+    i32* rows, i32* cols, i32 n,
+    i32 nrows, i32 ncols,
     i32* nz_indices,
     sym_allocator* alloc
 ) {
@@ -182,8 +182,8 @@ sym_csc_mat sym_csc_from_pairs(
 }
 
 sym_csc_mat sym_csc_from_deduped_pairs(
-    i32* rows, i32* cols, i32 n, 
-    i32 nrows, i32 ncols, 
+    i32* rows, i32* cols, i32 n,
+    i32 nrows, i32 ncols,
     i32* perm,
     sym_allocator* alloc
 ) {
@@ -234,7 +234,7 @@ sym_csc_mat sym_csc_from_deduped_pairs(
 
 sym_csc_mat sym_transpose_csc(sym_csc_mat m, i32* perm, sym_allocator* alloc) {
     i32* rows = (i32*) alloc->malloc(m.nnz * sizeof(i32), alloc->ctx);
-    i32* cols = (i32*) alloc->malloc(m.nnz * sizeof(i32), alloc->ctx); 
+    i32* cols = (i32*) alloc->malloc(m.nnz * sizeof(i32), alloc->ctx);
     for (i32 i = 0; i < m.ncols; ++i) {
         for (i32 j = m.col_starts[i]; j < m.col_starts[i + 1]; ++j) {
             rows[j] = i;

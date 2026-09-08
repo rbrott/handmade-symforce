@@ -440,8 +440,8 @@ int main(int argc, char** argv) {
     #endif
 
 
-    printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %+e\n",
-      iteration, lambda, last_error, error, relative_reduction);
+    printf("BAL optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %+e, (%a)\n",
+      iteration, lambda, last_error, error, relative_reduction, error);
 
     if (relative_reduction > -early_exit_min_reduction / 10 &&
         relative_reduction < early_exit_min_reduction) {

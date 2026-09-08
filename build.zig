@@ -298,6 +298,7 @@ pub fn build(b: *std.Build) void {
             "src/linearizer.c",
             "src/solver.c",
             "src/timing.c",
+            "src/optimizer.c",
         },
         .flags = &.{},
     });
@@ -344,6 +345,19 @@ pub fn build(b: *std.Build) void {
         balDemo_mod.addCMacro("SYM_ENABLE_TIMING", "1");
     }
     const balDemo = b.addExecutable(.{ .name = "balDemo", .root_module = balDemo_mod });
+
+    const demo_optimizer_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    demo_optimizer_mod.addIncludePath(b.path("src"));
+    demo_optimizer_mod.addIncludePath(b.path("test/bal"));
+    demo_optimizer_mod.addCSourceFiles(.{
+        .files = &.{
+            "test/bal/demo_optimizer.c",
+        },
+        .flags = &.{},
+    });
+    demo_optimizer_mod.linkLibrary(lib);
+    demo_optimizer_mod.linkLibrary(libmetis);
+    const demo_optimizer = b.addExecutable(.{ .name = "balDemoOptimizer", .root_module = demo_optimizer_mod });
 
     // balStats reports BAL structure and symbolic fill under the solver's ordering.
     const balStats_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
@@ -419,6 +433,7 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(balTest);
     b.installArtifact(balDemo);
+    b.installArtifact(demo_optimizer);
     b.installArtifact(balStats);
     b.installArtifact(balDemoCholmod);
     b.installArtifact(unit);
@@ -577,6 +592,7 @@ pub fn build(b: *std.Build) void {
         lib,
         balTest,
         balDemo,
+        demo_optimizer,
         balStats,
         cholmod,
         balDemoCholmod,
