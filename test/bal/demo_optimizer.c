@@ -123,6 +123,76 @@ void bal_free(bal_problem p, sym_allocator* alloc) {
     alloc->free(p.values, values_dim * sizeof(f64), alloc->ctx);
 }
 
+sym_linearizer bal_linearizer_new(bal_problem p, sym_linearization* lin, i32** Hl_block_nz_indices, sym_allocator* alloc) {
+    i32 nblocks = p.num_observations * 6;
+    i32 nkeys = 2 * p.num_cameras + p.num_points;
+
+    // Compute Hessian_lower block triplets.
+    i32* Hl_block_rows = (i32*) alloc->malloc(nblocks * sizeof(i32), alloc->ctx);
+    i32* Hl_block_cols = (i32*) alloc->malloc(nblocks * sizeof(i32), alloc->ctx);
+
+    // Linearizer callers are responsible for choosing the order of the keys.
+    // Here we have all the cameras in order (pose then intrinsics) followed by all the points.
+    for (i32 obs_index = 0; obs_index < p.num_observations; ++obs_index) {
+        i32 camera_index = p.camera_indices[obs_index];
+        i32 pose_key = 2 * camera_index + 0;
+        i32 intrinsics_key = 2 * camera_index + 1;
+        i32 point_index = p.point_indices[obs_index];
+        i32 point_key = 2 * p.num_cameras + point_index;
+
+        // NOTE: The order here must be consistent with the order later on in the update calls.
+        Hl_block_rows[6 * obs_index + 0] = pose_key;
+        Hl_block_rows[6 * obs_index + 1] = intrinsics_key;
+        Hl_block_rows[6 * obs_index + 2] = point_key;
+        Hl_block_rows[6 * obs_index + 3] = intrinsics_key;
+        Hl_block_rows[6 * obs_index + 4] = point_key;
+        Hl_block_rows[6 * obs_index + 5] = point_key;
+
+        Hl_block_cols[6 * obs_index + 0] = pose_key;
+        Hl_block_cols[6 * obs_index + 1] = pose_key;
+        Hl_block_cols[6 * obs_index + 2] = pose_key;
+        Hl_block_cols[6 * obs_index + 3] = intrinsics_key;
+        Hl_block_cols[6 * obs_index + 4] = intrinsics_key;
+        Hl_block_cols[6 * obs_index + 5] = point_key;
+    }
+
+    // Create the linearizer, linearization.
+    *Hl_block_nz_indices = (i32*) alloc->malloc(nblocks * sizeof(i32), alloc->ctx);
+    sym_csc_mat Hl_block = sym_csc_from_pairs(
+        Hl_block_rows, Hl_block_cols, nblocks,
+        nkeys, nkeys, *Hl_block_nz_indices, alloc);
+    alloc->free(Hl_block_rows, nblocks * sizeof(i32), alloc->ctx);
+    alloc->free(Hl_block_cols, nblocks * sizeof(i32), alloc->ctx);
+
+    // Compute key sizes.
+    i32* key_sizes = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
+    for (i32 i = 0; i < p.num_cameras; ++i) {
+        key_sizes[2 * i + 0] = 6;
+        key_sizes[2 * i + 1] = 3;
+    }
+    for (i32 i = 0; i < p.num_points; ++i) {
+        key_sizes[2 * p.num_cameras + i] = 3;
+    }
+
+    i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
+    sym_get_metis_tri_perm(Hl_block, key_sizes, NULL, key_perm, alloc);
+
+    sym_linearizer lzr = sym_linearizer_new(
+        Hl_block, *Hl_block_nz_indices, nblocks,
+        key_sizes, nkeys,
+        key_perm,
+        lin,
+        alloc
+    );
+
+    sym_csc_mat_free(Hl_block, alloc);
+
+    alloc->free(key_perm, nkeys * sizeof(i32), alloc->ctx);
+    alloc->free(key_sizes, nkeys * sizeof(i32), alloc->ctx);
+
+    return lzr;
+}
+
 
 f64 bal_linearize(
     sym_vec state,
@@ -296,74 +366,9 @@ int main(int argc, char** argv) {
 
     bal_problem p = bal_read_new(argv[1], alloc);
 
-    i32 nblocks = p.num_observations * 6;
-    i32 nkeys = 2 * p.num_cameras + p.num_points;
-
-    i32* Hl_block_nz_indices;
     sym_linearization lin;
-    sym_linearizer lzr;
-    {
-        // Compute Hessian_lower block triplets.
-        i32* Hl_block_rows = (i32*) alloc->malloc(nblocks * sizeof(i32), alloc->ctx);
-        i32* Hl_block_cols = (i32*) alloc->malloc(nblocks * sizeof(i32), alloc->ctx);
-
-        // Linearizer callers are responsible for choosing the order of the keys.
-        // Here we have all the cameras in order (pose then intrinsics) followed by all the points.
-        for (i32 obs_index = 0; obs_index < p.num_observations; ++obs_index) {
-            i32 camera_index = p.camera_indices[obs_index];
-            i32 pose_key = 2 * camera_index + 0;
-            i32 intrinsics_key = 2 * camera_index + 1;
-            i32 point_index = p.point_indices[obs_index];
-            i32 point_key = 2 * p.num_cameras + point_index;
-
-            // NOTE: The order here must be consistent with the order later on in the update calls.
-            Hl_block_rows[6 * obs_index + 0] = pose_key;
-            Hl_block_rows[6 * obs_index + 1] = intrinsics_key;
-            Hl_block_rows[6 * obs_index + 2] = point_key;
-            Hl_block_rows[6 * obs_index + 3] = intrinsics_key;
-            Hl_block_rows[6 * obs_index + 4] = point_key;
-            Hl_block_rows[6 * obs_index + 5] = point_key;
-
-            Hl_block_cols[6 * obs_index + 0] = pose_key;
-            Hl_block_cols[6 * obs_index + 1] = pose_key;
-            Hl_block_cols[6 * obs_index + 2] = pose_key;
-            Hl_block_cols[6 * obs_index + 3] = intrinsics_key;
-            Hl_block_cols[6 * obs_index + 4] = intrinsics_key;
-            Hl_block_cols[6 * obs_index + 5] = point_key;
-        }
-
-        // Create the linearizer, linearization.
-        Hl_block_nz_indices = (i32*) alloc->malloc(nblocks * sizeof(i32), alloc->ctx);
-        sym_csc_mat Hl_block = sym_csc_from_pairs(Hl_block_rows, Hl_block_cols, nblocks, nkeys, nkeys, Hl_block_nz_indices, alloc);
-        alloc->free(Hl_block_rows, nblocks * sizeof(i32), alloc->ctx);
-        alloc->free(Hl_block_cols, nblocks * sizeof(i32), alloc->ctx);
-
-        // Compute key sizes.
-        i32* key_sizes = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
-        for (i32 i = 0; i < p.num_cameras; ++i) {
-            key_sizes[2 * i + 0] = 6;
-            key_sizes[2 * i + 1] = 3;
-        }
-        for (i32 i = 0; i < p.num_points; ++i) {
-            key_sizes[2 * p.num_cameras + i] = 3;
-        }
-
-        i32* key_perm = (i32*) alloc->malloc(nkeys * sizeof(i32), alloc->ctx);
-        sym_get_metis_tri_perm(Hl_block, key_sizes, NULL, key_perm, alloc);
-
-        lzr = sym_linearizer_new(
-            Hl_block, Hl_block_nz_indices, nblocks,
-            key_sizes, nkeys,
-            key_perm,
-            &lin,
-            alloc
-        );
-
-        sym_csc_mat_free(Hl_block, alloc);
-
-        alloc->free(key_perm, nkeys * sizeof(i32), alloc->ctx);
-        alloc->free(key_sizes, nkeys * sizeof(i32), alloc->ctx);
-    }
+    i32* Hl_block_nz_indices;
+    sym_linearizer lzr = bal_linearizer_new(p, &lin, &Hl_block_nz_indices, alloc);
 
     i32* Hlt_perm = (i32*) alloc->malloc(lin.Hl.nnz * sizeof(i32), alloc->ctx);
     sym_csc_mat Hlt = sym_transpose_csc(lin.Hl, Hlt_perm, alloc);
@@ -406,7 +411,7 @@ int main(int argc, char** argv) {
     sym_linearizer_free(lzr, alloc);
     sym_linearization_free(lin, alloc);
 
-    alloc->free(Hl_block_nz_indices, nblocks * sizeof(i32), alloc->ctx);
+    alloc->free(Hl_block_nz_indices, lzr.nblocks * sizeof(i32), alloc->ctx);
 
     bal_free(p, alloc);
 
