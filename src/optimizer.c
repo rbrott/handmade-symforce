@@ -12,9 +12,9 @@
 
 #define SWAP_PTR(Type, a, b) \
     do {                     \
-        Type* tmp = a;       \
-        a = b;               \
-        b = tmp;             \
+        Type* tmp = (a);     \
+        (a) = (b);           \
+        (b) = tmp;           \
     } while (0)
 
 

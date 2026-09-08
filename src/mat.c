@@ -196,7 +196,6 @@ sym_csc_mat sym_csc_from_deduped_pairs(
     }
     for (i32 i = 0; i < n; ++i) {
         i32 j = perm[i];
-        i32 row = rows[j];
         i32 col = cols[j];
         ++nnz;
         ++nnz_by_col[col];
@@ -216,7 +215,6 @@ sym_csc_mat sym_csc_from_deduped_pairs(
         for (i32 i = 0; i < n; ++i) {
             i32 j = perm[i];
             i32 row = rows[j];
-            i32 col = cols[j];
             row_indices[nz_index++] = row;
         }
     }
