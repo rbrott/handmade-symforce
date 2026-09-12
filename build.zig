@@ -260,7 +260,7 @@ const cholmod_flags = [_][]const u8{
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
-    const enable_timing = b.option(bool, "timing", "Enable scope timing") orelse false;
+    _ = b.option(bool, "timing", "Enable scope timing") orelse false;
 
     // METIS (+ GKlib), built from vendored source with libc so it compiles on
     // any platform (macOS was previously relying on implicit native libc).
@@ -339,25 +339,6 @@ pub fn build(b: *std.Build) void {
     balTest_mod.linkLibrary(libmetis);
     const balTest = b.addExecutable(.{ .name = "balTest", .root_module = balTest_mod });
 
-    // balDemo (the main C demo we optimize / profile).
-    const balDemo_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
-    balDemo_mod.addIncludePath(b.path("src"));
-    balDemo_mod.addIncludePath(b.path("test/bal"));
-    // -ffast-math doesn't seem to gain much
-    // it does turn pow(x, 2) into x * x though
-    balDemo_mod.addCSourceFiles(.{
-        .files = &.{
-            "test/bal/demo.c",
-        },
-        .flags = &.{},
-    });
-    balDemo_mod.linkLibrary(lib);
-    balDemo_mod.linkLibrary(libmetis);
-    if (enable_timing) {
-        balDemo_mod.addCMacro("SYM_ENABLE_TIMING", "1");
-    }
-    const balDemo = b.addExecutable(.{ .name = "balDemo", .root_module = balDemo_mod });
-
     const demo_optimizer_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     demo_optimizer_mod.addIncludePath(b.path("src"));
     demo_optimizer_mod.addIncludePath(b.path("test/bal"));
@@ -396,27 +377,6 @@ pub fn build(b: *std.Build) void {
         .flags = &cholmod_flags,
     });
     const cholmod = b.addLibrary(.{ .name = "cholmod", .linkage = .static, .root_module = cholmod_mod });
-
-    // balDemoCholmod (alternative solver demo using CHOLMOD).
-    const balDemoCholmod_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
-    balDemoCholmod_mod.addIncludePath(b.path("src"));
-    balDemoCholmod_mod.addIncludePath(b.path("test/bal"));
-    balDemoCholmod_mod.addIncludePath(b.path(suitesparse_dir ++ "/SuiteSparse_config"));
-    balDemoCholmod_mod.addIncludePath(b.path(suitesparse_dir ++ "/CHOLMOD/Include"));
-    balDemoCholmod_mod.addCSourceFiles(.{
-        .files = &.{
-            "test/bal/demo_cholmod.c",
-            "test/bal/cholmod_shim.c",
-        },
-        .flags = &cholmod_flags,
-    });
-    balDemoCholmod_mod.linkLibrary(lib);
-    balDemoCholmod_mod.linkLibrary(libmetis);
-    balDemoCholmod_mod.linkLibrary(cholmod);
-    if (enable_timing) {
-        balDemoCholmod_mod.addCMacro("SYM_ENABLE_TIMING", "1");
-    }
-    const balDemoCholmod = b.addExecutable(.{ .name = "balDemoCholmod", .root_module = balDemoCholmod_mod });
 
     const demo_optimizer_cholmod_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     demo_optimizer_cholmod_mod.addIncludePath(b.path("src"));
@@ -463,18 +423,11 @@ pub fn build(b: *std.Build) void {
     const timingTest = b.addExecutable(.{ .name = "timingTest", .root_module = timingTest_mod });
 
     b.installArtifact(balTest);
-    b.installArtifact(balDemo);
     b.installArtifact(demo_optimizer);
     b.installArtifact(demo_optimizer_cholmod);
     b.installArtifact(balStats);
-    b.installArtifact(balDemoCholmod);
     b.installArtifact(unit);
     b.installArtifact(timingTest);
-
-    // Named step to build only balDemo (e.g. `zig build balDemo`), avoiding the
-    // CHOLMOD/SuiteSparse and Python targets.
-    const balDemoStep = b.step("balDemo", "Build only the balDemo executable");
-    balDemoStep.dependOn(&b.addInstallArtifact(balDemo, .{}).step);
 
     const balStatsStep = b.step("balStats", "Build only the BAL metadata reporter");
     balStatsStep.dependOn(&b.addInstallArtifact(balStats, .{}).step);
@@ -624,12 +577,10 @@ pub fn build(b: *std.Build) void {
         lib,
         test_,
         balTest,
-        balDemo,
         demo_optimizer,
         demo_optimizer_cholmod,
         balStats,
         cholmod,
-        balDemoCholmod,
         unit,
         timingTest,
         main,
