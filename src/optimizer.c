@@ -19,9 +19,16 @@
 
 
 typedef struct {
+    bool dynamic;
     f64 initial_lambda;
-    f64 lambda_up_factor;
-    f64 lambda_down_factor;
+
+    f64 static_lambda_up_factor;
+    f64 static_lambda_down_factor;
+
+    f64 dynamic_lambda_update_beta;
+    f64 dynamic_lambda_update_gamma;
+    i32 dynamic_lambda_update_p;
+
     f64 lambda_lower_bound;
     f64 lambda_upper_bound;
     f64 early_exit_min_reduction;
@@ -38,6 +45,7 @@ struct sym_optimizer {
     sym_optimizer_params params;
 
     f64 lambda;
+    f64 nu;
     i32 iteration;
 
     f64 error;
@@ -66,15 +74,23 @@ sym_optimizer* sym_optimizer_new(
     opt->retract = retract;
 
     opt->params = (sym_optimizer_params) {0};
+    opt->params.dynamic = false;
     opt->params.initial_lambda = 1.0;
-    opt->params.lambda_up_factor = 4.0;
-    opt->params.lambda_down_factor = 1 / 4.0;
+
+    opt->params.static_lambda_up_factor = 4.0;
+    opt->params.static_lambda_down_factor = 1 / 4.0;
+
+    opt->params.dynamic_lambda_update_beta = 2.0;
+    opt->params.dynamic_lambda_update_gamma = 3.0;
+    opt->params.dynamic_lambda_update_p = 3;
+
     opt->params.lambda_lower_bound = 0.0;
     opt->params.lambda_upper_bound = 1e10;
     opt->params.early_exit_min_reduction = 1e-6;
     opt->params.epsilon = 10.0 * DBL_EPSILON;
 
     opt->lambda = opt->params.initial_lambda;
+    opt->nu = opt->params.dynamic_lambda_update_beta;
     opt->iteration = 0;
 
     SYM_ASSERT(lin.Hl.data == NULL);
@@ -132,8 +148,25 @@ sym_optimizer_status sym_optimizer_step(sym_optimizer* opt) {
 
     f64 relative_reduction = (opt->error - error) / (opt->error + opt->params.epsilon);
 
-    printf("Optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %+e, (%a)\n",
-      opt->iteration, opt->lambda, opt->error, error, relative_reduction, error);
+    f64 gain_ratio = -1.0;
+    if (opt->params.dynamic) {
+        // See Section 3.2 of "Methods For Non-Linear Least Squares Problems" 2nd Edition.
+        // http://www2.imm.dtu.dk/pubdb/edoc/imm3215.pdf
+        f64 linear_delta_error = 0.0;
+        for (i32 i = 0; i < opt->delta.n; ++i) {
+            linear_delta_error += opt->delta.data[i] * (opt->lin.rhs.data[i] - opt->lambda * opt->delta.data[i]);
+        }
+        linear_delta_error *= 0.5;
+
+        f64 linear_error = opt->error + linear_delta_error;
+        gain_ratio = (opt->error - error) / (opt->error - linear_error);
+
+        printf("Optimizer [iter %4d] lambda: %e, error prev/new/linear: %e/%e/%e, rel reduction: %+e, gain ratio: %+e (%a)\n",
+            opt->iteration, opt->lambda, opt->error, error, linear_error, relative_reduction, gain_ratio, error);
+    } else {
+        printf("Optimizer [iter %4d] lambda: %e, error prev/new: %e/%e, rel reduction: %+e, (%a)\n",
+            opt->iteration, opt->lambda, opt->error, error, relative_reduction, error);
+    }
 
     if (relative_reduction > -opt->params.early_exit_min_reduction / 10 &&
         relative_reduction < opt->params.early_exit_min_reduction) {
@@ -147,7 +180,15 @@ sym_optimizer_status sym_optimizer_step(sym_optimizer* opt) {
     }
 
     if (accept_update) {
-        opt->lambda *= opt->params.lambda_down_factor;
+        if (opt->params.dynamic) {
+            opt->lambda *= fmax(1.0 / opt->params.dynamic_lambda_update_gamma,
+                1.0 - (opt->params.dynamic_lambda_update_beta - 1.0) *
+                    pow(2.0 * gain_ratio - 1.0, opt->params.dynamic_lambda_update_p));
+            opt->nu = 2.0;
+        } else {
+            opt->lambda *= opt->params.static_lambda_down_factor;
+        }
+
         opt->error = error;
 
         // swap in the new buffers
@@ -155,7 +196,12 @@ sym_optimizer_status sym_optimizer_step(sym_optimizer* opt) {
         SWAP_PTR(f64, opt->lin.rhs.data, opt->lin_rhs_temp);
         SWAP_PTR(f64, opt->state.data, opt->state_temp.data);
     } else {
-        opt->lambda *= opt->params.lambda_up_factor;
+        if (opt->params.dynamic) {
+            opt->lambda *= opt->nu;
+            opt->nu *= 2.0;
+        } else {
+            opt->lambda *= opt->params.static_lambda_up_factor;
+        }
     }
 
     opt->lambda = fmax(fmin(opt->lambda, opt->params.lambda_upper_bound), opt->params.lambda_lower_bound);
