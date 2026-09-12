@@ -418,6 +418,24 @@ pub fn build(b: *std.Build) void {
     }
     const balDemoCholmod = b.addExecutable(.{ .name = "balDemoCholmod", .root_module = balDemoCholmod_mod });
 
+    const demo_optimizer_cholmod_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
+    demo_optimizer_cholmod_mod.addIncludePath(b.path("src"));
+    demo_optimizer_cholmod_mod.addIncludePath(b.path("test/bal"));
+    demo_optimizer_cholmod_mod.addIncludePath(b.path(suitesparse_dir ++ "/SuiteSparse_config"));
+    demo_optimizer_cholmod_mod.addIncludePath(b.path(suitesparse_dir ++ "/CHOLMOD/Include"));
+    demo_optimizer_cholmod_mod.addCSourceFiles(.{
+        .files = &.{
+            "test/bal/demo_optimizer_cholmod.c",
+            "test/bal/cholmod_shim.c",
+        },
+        .flags = &.{},
+    });
+    demo_optimizer_cholmod_mod.linkLibrary(lib);
+    demo_optimizer_cholmod_mod.linkLibrary(test_);
+    demo_optimizer_cholmod_mod.linkLibrary(libmetis);
+    demo_optimizer_cholmod_mod.linkLibrary(cholmod);
+    const demo_optimizer_cholmod = b.addExecutable(.{ .name = "balDemoOptimizerCholmod", .root_module = demo_optimizer_cholmod_mod });
+
     // unit tests (C).
     const unit_mod = b.createModule(.{ .target = target, .optimize = optimize, .link_libc = true });
     unit_mod.addIncludePath(b.path("src"));
@@ -447,6 +465,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(balTest);
     b.installArtifact(balDemo);
     b.installArtifact(demo_optimizer);
+    b.installArtifact(demo_optimizer_cholmod);
     b.installArtifact(balStats);
     b.installArtifact(balDemoCholmod);
     b.installArtifact(unit);
@@ -607,6 +626,7 @@ pub fn build(b: *std.Build) void {
         balTest,
         balDemo,
         demo_optimizer,
+        demo_optimizer_cholmod,
         balStats,
         cholmod,
         balDemoCholmod,
